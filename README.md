@@ -39,7 +39,7 @@ student-material-ecg-hrv/
 ├── Syllabus_....md                # Course syllabus (reference)
 │
 ├── case-brief-individual/         # Individual case briefs (Markdown)
-├── reflection-group/               # Group reflection documents (Markdown)
+├── reflection-group/              # Group reflection documents (Markdown)
 ├── report-individual/             # Individual technical reports (Markdown)
 │
 ├── data-group/                    # Group data submissions (folder per group)
@@ -274,6 +274,7 @@ git push
 **Author:** Torbjörn E. M. Nordling, PhD
 
 Unless otherwise specified, content in this repository is licensed under:
+
 - **Documentation:** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Source Code:** [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
