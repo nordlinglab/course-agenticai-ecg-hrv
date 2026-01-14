@@ -131,10 +131,10 @@ git config --global user.email "your.email@example.com"
 
 Since you have **read-only access** to this repository, one member in each group must create your own copy (fork) and ask the other group members to fork it:
 
-1. Go to the repository on Bitbucket
-2. Click the **"+"** button on the left sidebar
+1. Log in to your Atlassian account, then go to [this repository on Bitbucket](https://bitbucket.org/nordlinglab/nordlinglab-course-agenticai-ecg-hrv/)
+2. Click the **"..."** button in the upper right corner
 3. Select **"Fork this repository"**
-4. Give your fork a name (e.g., `agenticai-submissions-yourname`)
+4. Give your fork a name (e.g., `agenticai-submissions-yourname`), don't check `Private repository` since then your group member cannot read it unless you give them permission
 5. Click **"Fork repository"**
 
 You now have your own copy where you can make changes.
