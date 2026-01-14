@@ -1,7 +1,3 @@
----
-title: "Case Brief: Agentic Code Flow & Fatigue Assistant"
----
-
 # Case Brief: Agentic Code Flow & Fatigue Assistant
 
 **Author:** 2026-Chen-KunYu
@@ -11,7 +7,7 @@ title: "Case Brief: Agentic Code Flow & Fatigue Assistant"
 
 Programmers often experience "tunnel vision" during development, ignoring physical signs of fatigue or high stress. Continuing to code under cognitive overload frequently leads to logical blind spots, increased bug rates, and "ineffective overtime."
 
-Crucially, when developers are fatigued, they often lack the motivation to organize code or write proper commit messages. This leads to "abandoned work"â€”leaving the workspace without committing changes, resulting in an unstable project state and untracked progress.
+Crucially, when developers are fatigued, they often lack the motivation to organize code or write proper commit messages. This leads to "abandoned work"—leaving the workspace without committing changes, resulting in an unstable project state and untracked progress.
 
 ## Context/Background
 
