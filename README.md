@@ -327,6 +327,304 @@ git push origin main
 
 ---
 
+## Reviewing Pull Requests
+
+This section explains how to review code changes from your group members.
+
+### In Bitbucket Web Interface
+
+#### Viewing a Pull Request
+
+1. Go to the repository on Bitbucket
+2. Click **"Pull requests"** in the left sidebar
+3. Click on the pull request you want to review
+4. You'll see:
+
+   - **"Overview"** tab: Description, commits, and status
+   - **"Files changed"** tab: All changed files with line-by-line changes
+   - **"Commits"** tab: Individual commits in the PR
+
+#### Reviewing Changes
+
+1. Click on the **"Files changed"** tab
+2. Changes are shown with:
+
+   - **Green background:** Added lines
+   - **Red background:** Removed lines
+
+3. Click on any line number and the **+** that appears to add a comment
+
+#### Adding Comments and Requesting Changes
+
+1. Click on a line number and the **+** that appears in the diff view on the **"Files changed"** tab
+2. Type your comment (you can use Markdown)
+3. Click **"Overview"** tab and write a general comment in the Activity
+
+#### Approving or Declining a Pull Request
+
+1. After reviewing all changes, click the **"Approve"** button (green checkmark) if the changes look good (you still need to merge)
+2. Or click **"Request changes"** (orange icon) if modifications are needed
+3. To decline entirely, click **"Decline"** from the **"..."** menu
+
+#### Resolving "This pull request is X commits behind"
+
+**Problem:** You see a warning like:
+> "This pull request is 1 commit behind nordlinglab/nordlinglab-course-agenticai-ecg-hrv:main"
+
+**What this means:** The target branch has new commits that aren't in your PR branch. You need to update your branch.
+
+**Solution (for the author of the pull request):**
+
+```bash
+# In your local repository
+cd YOUR_FORK_NAME
+
+# Fetch the latest from upstream
+git fetch upstream
+
+# Merge upstream changes into your branch
+git merge upstream/main
+
+# If there are conflicts, resolve them in your editor, then:
+git add .
+git commit -m "Merged upstream changes"
+
+# Push the updated branch
+git push origin main
+```
+
+**Alternative - Rebase (cleaner history):**
+
+```bash
+git fetch upstream
+git rebase upstream/main
+
+# If conflicts occur, resolve them, then:
+git add .
+git rebase --continue
+
+# Push the updated branch
+git push origin main
+```
+
+After pushing, the pull request will automatically update and the warning should disappear.
+
+#### Merging a Pull Request
+
+1. Once approved and all checks pass, click **"Merge"** from the **"..."** menu to merge the branch into `nordlinglab/nordlinglab-course-agenticai-ecg-hrv:main`
+2. Choose merge strategy:
+
+   - **Merge commit:** Preserves all commits
+   - **Squash:** Combines all commits into one
+   - **Fast-forward:** Only if no divergence (cleanest history so recommended)
+
+3. Click **"Merge"** to confirm
+
+---
+
+### In the Terminal
+
+#### Setting Up Better Diff Tools
+
+The default `git diff` output can be hard to read. Here are better alternatives:
+
+**Option 1: Colored diff with `colordiff`**
+
+```bash
+# Install colordiff
+# macOS
+brew install colordiff
+
+# Ubuntu/Debian
+sudo apt install colordiff
+
+# Usage: pipe git diff through colordiff
+git diff | colordiff
+
+# Or set it as default pager
+git config --global core.pager "colordiff | less -R"
+```
+
+**Option 2: `git-delta` (Modern, feature-rich)**
+
+```bash
+# Install delta
+# macOS
+brew install git-delta
+
+# Ubuntu/Debian (download from GitHub releases)
+# https://github.com/dandavison/delta/releases
+
+# Windows (with scoop)
+scoop install delta
+
+# Configure git to use delta
+git config --global core.pager delta
+git config --global interactive.diffFilter "delta --color-only"
+git config --global delta.navigate true
+git config --global delta.side-by-side true
+```
+
+Delta features:
+- Syntax highlighting
+- Side-by-side view
+- Line numbers
+- Word-level diff highlighting
+
+#### Reviewing a Pull Request Locally
+
+```bash
+# Fetch the pull request branch from your group member's fork
+# First, add their fork as a remote (do this once)
+git remote add groupmate https://bitbucket.org/THEIR_WORKSPACE/THEIR_FORK.git
+
+# Fetch their branches
+git fetch groupmate
+
+# View the diff between your main and their branch
+# Option 1: built-in diff
+git diff main..groupmate/main
+# Option 2: delta for better visualization
+git diff main..groupmate/main | delta
+
+# View only file names that changed
+git diff --name-only main..groupmate/main
+
+# View diff statistics (lines added/removed per file)
+git diff --stat main..groupmate/main
+```
+
+#### Checking Out a Pull Request Branch for Testing
+
+```bash
+# Create a local branch from their pull request
+git checkout -b review-groupmate groupmate/main
+
+# Run tests, check the code, etc.
+# ...
+
+# When done, switch back to your branch
+git checkout main
+
+# Delete the review branch
+git branch -d review-groupmate
+```
+
+#### Viewing Commit History
+
+```bash
+# See commits in the PR
+git log main..groupmate/main --oneline
+
+# See commits with full details
+git log main..groupmate/main
+
+# See commits as a graph
+git log main..groupmate/main --oneline --graph
+```
+
+#### Adding Comments via Command Line
+
+While you can't add pull request comments directly from the terminal like GitHub's `gh` CLI, you can:
+
+**1. Create a review file locally:**
+```bash
+# Save diff to a file for adding your comments
+git diff main..groupmate/main > review_notes.txt
+# Edit review_notes.txt with your comments, then share via pull request comment
+```
+
+**2. Use the Bitbucket REST API with curl:**
+```bash
+# Add a comment to a PR (requires app password)
+curl -u "your_email:app_password" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"content": {"raw": "Your comment here"}}' \
+  "https://api.bitbucket.org/2.0/repositories/WORKSPACE/REPO/pullrequests/PR_ID/comments"
+```
+
+**3. Use a Bitbucket CLI tool (optional):**
+
+Note: Unlike GitHub's official `gh` CLI, Bitbucket doesn't have an official CLI. Third-party options exist but are limited.
+
+```bash
+# Best practice: Use uv (fastest, isolated environment)
+# First install uv if you don't have it:
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Or with Homebrew
+brew install uv
+
+# Then install bitbucket-cli in isolated environment
+uv tool install bitbucket-cli
+
+# Alternative: Use pipx (also isolated)
+brew install pipx    # macOS
+pipx install bitbucket-cli
+
+# NOT recommended: Direct pip install (breaks PEP 668 on modern systems)
+# pip install bitbucket-cli  # Avoid this
+```
+
+For most users, the Bitbucket web interface is the easiest way to manage pull request comments.
+
+---
+
+### In VS Code
+
+#### Built-in Git Diff
+
+1. Open VS Code in your repository folder
+2. Click the **Source Control** icon (branch icon) in the left sidebar, or press `Ctrl+Shift+G` / `Cmd+Shift+G`
+3. Changed files appear in the sidebar
+4. Click any file to see a side-by-side diff view
+
+#### Comparing Branches
+
+1. Open the Command Palette: `Ctrl+Shift+P` / `Cmd+Shift+P`
+2. Type **"Git: Checkout to..."** and select the branch to compare
+3. Or use the **GitLens** extension for more powerful comparisons
+
+#### Using GitLens Extension (Recommended)
+
+**Install GitLens:**
+1. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`)
+2. Search for **"GitLens"**
+3. Click **Install**
+
+**Compare branches with GitLens:**
+1. Click the **GitLens** icon in the sidebar
+2. Expand **"Compare"** section
+3. Click **"Compare References..."**
+4. Select your branch (e.g., `main`)
+5. Select the branch to compare against (e.g., `groupmate/main`)
+6. GitLens shows:
+   - List of changed files
+   - Number of commits difference
+   - Click any file to see the diff
+
+**Review inline blame:**
+- GitLens shows who changed each line and when
+- Hover over any line to see the commit details
+
+#### Fetching and Reviewing Remote Branches in VS Code
+
+1. Open the Command Palette: `Ctrl+Shift+P` / `Cmd+Shift+P`
+2. Type **"Git: Fetch From..."**
+3. Select the remote (e.g., `groupmate`)
+4. Now you can compare against `groupmate/main`
+
+#### VS Code Pull Request Extension (for GitHub/GitLab)
+
+Note: For Bitbucket, use the **Atlassian for VS Code** extension:
+
+1. Install **"Atlassian for VS Code"** from Extensions
+2. Sign in to your Atlassian account
+3. You can view and manage Bitbucket PRs directly in VS Code
+
+---
+
 ## Troubleshooting
 
 ### "Access denied" when forking
