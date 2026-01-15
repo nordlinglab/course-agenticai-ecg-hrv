@@ -5,8 +5,9 @@ This folder contains group presentation slides for the final demonstration.
 ## Requirements
 
 ### File Format
-- **Format:** LaTeX Beamer (`.tex`)
+- **Format:** LaTeX Beamer (`.tex`) with Figures (`.pdf`,`.png`, or `.jpg`)
 - **Template:** NordlingLab Beamer 16:9 template (required)
+- **Compiler:** XeLaTeX (required for the template)
 - **Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3.tex` (alphabetical order, ASCII only)
 - **License:** Include license declaration in the document (CC-BY-4.0 recommended)
 
@@ -55,50 +56,158 @@ The oral presentation is scored based on:
 
 ## NordlingLab Beamer Template
 
-Rewrite based on example in L2_hrv_ecg/main.tex
-Include guide on how to setup template from https://bitbucket.org/nordlinglab/nordlinglab-template-beamer/
+You **must** use the official NordlingLab Beamer template for your presentation. The template provides consistent branding and professional formatting, like your future employer will require.
 
-### Basic Template Structure
+### Template Repository
+
+**Source:** https://bitbucket.org/nordlinglab/nordlinglab-template-beamer/
+
+### Template Installation
+
+#### macOS
+
+```bash
+# 1. Find your TeX home directory
+kpsewhich -expand-var '$TEXMFHOME'
+
+# 2. Create the latex directory (if needed) and navigate to it
+mkdir -p $(kpsewhich -expand-var '$TEXMFHOME')/tex/latex
+cd $(kpsewhich -expand-var '$TEXMFHOME')/tex/latex
+
+# 3. Clone the template repository
+git clone https://bitbucket.org/nordlinglab/nordlinglab-template-beamer.git
+
+# 4. Update the TeX database
+texhash
+```
+
+#### Windows 10 (MiKTeX)
+
+```cmd
+# 1. Create local texmf directory structure
+mkdir C:\localtexmf\tex\latex
+cd C:\localtexmf\tex\latex
+
+# 2. Clone the template repository
+git clone https://bitbucket.org/nordlinglab/nordlinglab-template-beamer.git
+
+# 3. Configure MiKTeX:
+#    - Open "MiKTeX Settings (Admin)"
+#    - Go to "Roots" tab
+#    - Add "C:\localtexmf" as a root
+#    - Go to "General" tab
+#    - Click "Refresh FNDB"
+```
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+# 1. Find and navigate to your TeX home directory
+cd $(kpsewhich -var-value $TEXMFHOME)
+
+# 2. Create the latex directory (may need sudo)
+sudo mkdir -p tex/latex
+cd tex/latex
+
+# 3. Clone the template repository
+sudo git clone https://bitbucket.org/nordlinglab/nordlinglab-template-beamer.git
+
+# 4. Update the TeX database
+sudo texhash
+```
+
+#### Alternative: Use TEXINPUTS (No Installation)
+
+If you cannot install the template system-wide, you can use the `TEXINPUTS` environment variable:
+
+```bash
+# Clone the template to a local directory
+git clone https://bitbucket.org/nordlinglab/nordlinglab-template-beamer.git
+
+# Compile with TEXINPUTS pointing to the template
+TEXINPUTS=./nordlinglab-template-beamer//: xelatex your-presentation.tex
+```
+
+---
+
+## Template Structure
+
+The NordlingLab template provides several theme files:
+
+| File | Purpose |
+|------|---------|
+| `beamerthemeNordlingLab.sty` | Main theme (4:3 aspect ratio) |
+| `beamerthemeNordlingLab169.sty` | 16:9 widescreen theme |
+| `beamercolorthemeNordlingLab.sty` | Color definitions |
+| `beamerfontthemeNordlingLab.sty` | Font settings |
+| `beamerinnerthemeNordlingLab.sty` | Inner theme elements |
+| `beamerouterthemeNordlingLab.sty` | Outer theme (4:3) |
+| `beamerouterthemeNordlingLab169.sty` | Outer theme (16:9) |
+| `Figures/` | Logo files and graphics |
+
+---
+
+## Basic Template Usage
+
+### Minimal Example
 
 ```latex
-\documentclass[aspectratio=169]{beamer}
-
-% NordlingLab theme settings
-\usetheme{Madrid}
-\usecolortheme{default}
-\setbeamertemplate{navigation symbols}{}
-\setbeamertemplate{footline}[frame number]
-
-% Packages
-\usepackage[utf8]{inputenc}
-\usepackage{graphicx}
-\usepackage{booktabs}
-\usepackage{amsmath}
-
-% Title information
-\title{Your Project Title}
-\subtitle{Agentic AI Course - Final Presentation}
-\author{FamilyName1, FirstName1 \and FamilyName2, FirstName2 \and FamilyName3, FirstName3}
-\institute{National Cheng Kung University}
-\date{January 2026}
-
-% License
+% !TEX program = xelatex
+% !TEX encoding = UTF-8 Unicode
+%
 % SPDX-License-Identifier: CC-BY-4.0
+% Your Name, Your Group Members
+
+% Use 16:9 aspect ratio (required for this course)
+\documentclass[aspectratio=169]{beamer}
+\mode<presentation>{
+    \usetheme{NordlingLab169}
+}
+
+% Load packages
+\usepackage[english]{babel}
+\let\latinencoding\relax
+\usepackage{xltxtra}
+% Use a system font (Candara is the official font, but may not be available)
+% Alternatives: Helvetica Neue (macOS), DejaVu Sans (Linux), Calibri (Windows)
+\setsansfont{Helvetica Neue}[
+    BoldFont = Helvetica Neue Bold,
+    ItalicFont = Helvetica Neue Italic
+]
+\usepackage{graphicx}
+\usepackage[yyyymmdd]{datetime}
+\renewcommand{\dateseparator}{--}
+
+% Presentation metadata
+\title[Short Title]{Your Project Title}
+\subtitle{Agentic AI Course - Final Presentation}
+\author[Names]{FamilyName1,~FirstName1 \and FamilyName2,~FirstName2 \and FamilyName3,~FirstName3}
+\institute[NCKU]{
+    National Cheng Kung University\\
+    Agentic AI Course
+}
+\date{Spring 2026}
+\subject{Your presentation topic}
 
 \begin{document}
 
-% Title slide
+% === TITLE SLIDE ===
+\setbeamertemplate{background}[NLTitle]
+\setbeamertemplate{footline}[NLTitle]
 \begin{frame}
     \titlepage
 \end{frame}
 
-% Table of contents (optional)
+% === OUTLINE (with CC license footer) ===
+\setbeamertemplate{background}[NLCC]
+\setbeamertemplate{footline}[NLCC]
 \begin{frame}{Outline}
     \tableofcontents
 \end{frame}
 
-% Content slides
+% === CONTENT SLIDES ===
 \section{Problem \& Motivation}
+
 \begin{frame}{Problem Statement}
     \begin{itemize}
         \item What problem are you solving?
@@ -108,20 +217,20 @@ Include guide on how to setup template from https://bitbucket.org/nordlinglab/no
 \end{frame}
 
 \section{System Architecture}
-\begin{frame}{Architecture Overview}
-    % Include your architecture diagram
-    % \includegraphics[width=\textwidth]{architecture.png}
 
+\begin{frame}{Architecture Overview}
     \begin{itemize}
         \item Component 1: Description
         \item Component 2: Description
         \item Component 3: Description
     \end{itemize}
+    % Include your architecture diagram:
+    % \includegraphics[width=0.8\textwidth]{your-diagram.pdf}
 \end{frame}
 
 \section{Demo \& Results}
-\begin{frame}{Demonstration}
-    % Screenshots, results, performance metrics
+
+\begin{frame}{Results}
     \begin{itemize}
         \item Key result 1
         \item Key result 2
@@ -129,26 +238,8 @@ Include guide on how to setup template from https://bitbucket.org/nordlinglab/no
     \end{itemize}
 \end{frame}
 
-\section{Lessons Learned}
-\begin{frame}{Challenges \& Insights}
-    \begin{columns}
-        \column{0.5\textwidth}
-        \textbf{Challenges:}
-        \begin{itemize}
-            \item Challenge 1
-            \item Challenge 2
-        \end{itemize}
-
-        \column{0.5\textwidth}
-        \textbf{Lessons:}
-        \begin{itemize}
-            \item Lesson 1
-            \item Lesson 2
-        \end{itemize}
-    \end{columns}
-\end{frame}
-
 \section{Conclusion}
+
 \begin{frame}{Conclusion}
     \begin{itemize}
         \item Summary of achievements
@@ -166,18 +257,103 @@ Include guide on how to setup template from https://bitbucket.org/nordlinglab/no
 
 ---
 
-## How to Compile LaTeX
+## Background and Footline Templates
+
+The NordlingLab theme provides different background and footline styles for different slide types:
+
+### Title Slide
+```latex
+\setbeamertemplate{background}[NLTitle]
+\setbeamertemplate{footline}[NLTitle]
+```
+Use for the title page. Shows NordlingLab branding without footer.
+
+### Creative Commons Licensed Content
+```latex
+\setbeamertemplate{background}[NLCC]
+\setbeamertemplate{footline}[NLCC]
+```
+Use for content under CC license. Shows CC logo and license URL in footer.
+
+### Standard Slides (Non-CC Content)
+```latex
+\setbeamertemplate{background}[NL]
+\setbeamertemplate{footline}[NL][Custom footer text]
+```
+Use for slides with content that is not under CC license (e.g., third-party images). Requires source attribution.
+
+### Example: Switching Between Styles
+
+```latex
+% Title slide
+\setbeamertemplate{background}[NLTitle]
+\setbeamertemplate{footline}[NLTitle]
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% CC licensed content
+\setbeamertemplate{background}[NLCC]
+\setbeamertemplate{footline}[NLCC]
+\begin{frame}{Your Content}
+    % Your CC-licensed content here
+\end{frame}
+
+% Slide with third-party image (not CC)
+\setbeamertemplate{background}[NL]
+\setbeamertemplate{footline}[NL][Source: Author Name, Year]
+\begin{frame}{External Image}
+    \includegraphics[width=\textwidth]{third-party-image.png}
+\end{frame}
+
+% Back to CC licensed content
+\setbeamertemplate{background}[NLCC]
+\setbeamertemplate{footline}[NLCC]
+\begin{frame}{More Content}
+    % Continue with your content
+\end{frame}
+```
+
+---
+
+## How to Compile
 
 ### Option 1: Overleaf (Recommended for Beginners)
 
 1. Go to https://www.overleaf.com
 2. Create free account
-3. New Project → Upload Project or Blank Project
-4. Paste the template code
-5. Click "Recompile" to see the PDF
-6. Download the `.tex` file for submission
+3. New Project → Upload Project
+4. Upload all template files (`.sty` files and `Figures/` folder) along with your `.tex` file
+5. Set compiler to **XeLaTeX** (Menu → Compiler → XeLaTeX)
+6. Click "Recompile" to see the PDF
+7. Download the `.tex` file for submission
 
-### Option 2: Local Installation
+**Important:** Overleaf requires you to upload the template files since they are not installed system-wide.
+
+### Option 2: Local Compilation (After Template Installation)
+
+```bash
+# Using xelatex directly
+xelatex 2026-Chen-Lin-Wang.tex
+
+# If you have bibliography
+xelatex 2026-Chen-Lin-Wang.tex
+biber 2026-Chen-Lin-Wang
+xelatex 2026-Chen-Lin-Wang.tex
+xelatex 2026-Chen-Lin-Wang.tex
+```
+
+### Option 3: Using TEXINPUTS (Without Installation)
+
+```bash
+# Set TEXINPUTS to include template directory
+export TEXINPUTS=./nordlinglab-template-beamer//:
+
+# Then compile
+xelatex 2026-Chen-Lin-Wang.tex
+```
+
+### Installing XeLaTeX
 
 **macOS:**
 ```bash
@@ -190,12 +366,56 @@ Download MiKTeX: https://miktex.org/download
 **Linux:**
 ```bash
 sudo apt install texlive-full
+# or minimal:
+sudo apt install texlive-xetex texlive-latex-extra texlive-fonts-extra
 ```
 
-**Compile:**
-```bash
-xelatex 2026-Chen-Lin-Wang.tex
+---
+
+## Useful Packages
+
+The following packages are commonly used with the template:
+
+```latex
+% Mathematics
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% SI units
+\usepackage{siunitx}
+
+% Code listings
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Tables
+\usepackage{booktabs}
+
+% Bibliography (if needed)
+\usepackage[style=numeric,sorting=none,backend=biber]{biblatex}
+\addbibresource{references.bib}
+
+% Hyperlinks
+\usepackage{hyperref}
 ```
+
+---
+
+## Including Images
+
+Place images in the same directory and reference them:
+
+```latex
+\begin{frame}{System Architecture}
+    \centering
+    \includegraphics[width=0.8\textwidth]{architecture-diagram.pdf}
+\end{frame}
+```
+
+**Supported formats:** PNG, JPG, PDF (vector graphics preferred)
+
+**Naming convention for images:**
+`YYYY-FamilyName1-FamilyName2-FamilyName3-figurename.pdf`
 
 ---
 
@@ -224,34 +444,17 @@ xelatex 2026-Chen-Lin-Wang.tex
 
 ---
 
-## Including Images
-
-Place images in the same directory and reference them:
-
-```latex
-\begin{frame}{System Architecture}
-    \centering
-    \includegraphics[width=0.8\textwidth]{architecture-diagram.pdf}
-\end{frame}
-```
-
-**Supported formats:** PNG, JPG, PDF (vector graphics preferred)
-
-**Naming convention for images:**
-`YYYY-FamilyName1-FamilyName2-FamilyName3-figurename.pdf`
-
----
-
 ## Submission Checklist
 
 Before submitting, verify:
 
 - [ ] File named correctly: `YYYY-Name1-Name2-Name3.tex` (alphabetical)
 - [ ] Only ASCII characters in filename
-- [ ] License declaration included in document
-- [ ] Uses 16:9 aspect ratio (`aspectratio=169`)
+- [ ] License declaration included in document (SPDX header)
+- [ ] Uses NordlingLab169 theme with 16:9 aspect ratio
+- [ ] Uses correct background/footline templates (NLTitle, NLCC, NL)
 - [ ] All images included with correct names
-- [ ] Compiles without errors
+- [ ] Compiles without errors using XeLaTeX
 - [ ] PDF renders correctly
 - [ ] No personally identifiable information (PII)
 - [ ] All group members listed as authors
