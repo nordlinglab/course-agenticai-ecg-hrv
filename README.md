@@ -39,9 +39,10 @@ student-material-ecg-hrv/
 ├── README.md                      # This file
 ├── Syllabus_....md                # Course syllabus (reference)
 │
+├── ssh-keys-individual/           # Individual SSH public keys (for server access)
 ├── case-brief-individual/         # Individual case briefs (Markdown)
-├── reflection-group/              # Group reflection documents (Markdown)
 ├── report-individual/             # Individual technical reports (Markdown)
+├── reflection-group/              # Group reflection documents (Markdown)
 │
 ├── data-group/                    # Group data submissions (folder per group)
 │   └── 2026-Chen-Lin-Wang-data/   # Example: git submodule
@@ -107,16 +108,28 @@ Examples:
 
 | Submission Type | Format | Location |
 |-----------------|--------|----------|
+| SSH Public Key (Individual) | OpenSSH `.pub` | `ssh-keys-individual/` |
 | Case Brief (Individual) | Markdown `.md` | `case-brief-individual/` |
-| Reflection (Group) | Markdown `.md` | `reflection-group/` |
-| Technical Report (Individual) | Markdown `.md` | `report-individual/` |
 | Data (Group) | Folder with data files incl. `README.md` | `data-group/` |
 | Project Code (Group) | Folder with code incl. `README.md` | `project-code-group/` |
 | Test Cases (Group) | Markdown `.md` with reference to `tests/` in project code | `tests-group/` |
-| Presentation Slides (Group) | Beamer `.tex` (NordlingLab 16:9 template) | `slides-demonstration-group/` |
 | System Design (Group) | draw.io `.drawio` XML (UML standard) | `system-design-group/` |
+| Presentation Slides (Group) | Beamer `.tex` (NordlingLab 16:9 template) | `slides-demonstration-group/` |
+| Reflection (Group) | Markdown `.md` | `reflection-group/` |
+| Technical Report (Individual) | Markdown `.md` | `report-individual/` |
 
 See the `README.md` in each folder for detailed requirements, grading criteria, and examples.
+
+### Deadline Summary
+
+| Date | Time | Submissions Due |
+|------|------|-----------------|
+| Fri 2026-01-16 | 10:00 | SSH Public Key, Case Brief |
+| Tue 2026-01-20 | 13:00 | Data, Project Code, Test Cases, System Design |
+| Wed 2026-01-21 | 13:00 | Presentation Slides, Reflection |
+| Fri 2026-01-23 | 13:00 | Technical Report |
+
+**All times are Taiwan Standard Time (UTC+8).**
 
 ---
 
