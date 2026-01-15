@@ -1,4 +1,4 @@
-# Project Codename: The Burnout Shield
+# Project Codename: The Burnout Shield 
 > **“Preventative Maintenance” for Human Capital & Automated Risk Hedging**
 
 ---
