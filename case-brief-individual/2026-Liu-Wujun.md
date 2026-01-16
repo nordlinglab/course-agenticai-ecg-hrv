@@ -1,6 +1,6 @@
 # Case Brief: Performance Comparison of Real-time QRS Detection Algorithms
 
-## Problem Definition
+## Problem-Definition
 
 With the rapid growth of mobile health (mHealth) and wearable ECG monitoring devices, accurate real-time detection of ECG signals has become a critical requirement for home-based and continuous health monitoring. Among ECG components, the QRS complex is the most prominent and energetic feature, and its detection accuracy directly affects the reliability of Heart Rate (BPM) and Heart Rate Variability (HRV).
 
