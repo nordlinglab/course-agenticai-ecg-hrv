@@ -1,6 +1,23 @@
 # SSH Public Keys - Individual Submission
 
-This folder contains SSH public keys for individual student access to the NordlingLab computing resources.
+This folder contains SSH public keys for individual student access to the Nordling Lab computing resources.
+
+## Requirements
+
+### File Format
+- **Format:** OpenSSH public key (`.pub` file content pasted into a text file)
+- **Naming:** `YYYY-FamilyName-FirstName.pub` (ASCII only)
+- **Key Type:** Ed25519 (recommended) or RSA (4096-bit minimum)
+
+### Example Submission
+
+File: `2026-Chen-Wei.pub`
+
+Contents:
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBzSomeRandomCharactersHere your.email@example.com
+```
+---
 
 ## Why Submit Your SSH Key?
 
@@ -19,19 +36,19 @@ The TA will create a personal account for you on our lab's **Mac Studio M3 Ultra
 
 SSH uses a **key pair**: a public key and a private key. Understanding the difference is essential for security.
 
+### The Pad Lock Key Analogy
+
+Think of your SSH keys like a pad lock system:
+
+- **Public key** = The pad lock. You can give copies to anyone who needs to let you in. Only your matching key can unlock it.
+- **Private key** = The actual key to your house. **Keep it secret, keep it safe.** Anyone with this key can pretend to be you.
+
 ### How to Recognize Your Keys
 
 | File | Name | Starts with | Safe to share? |
 |------|------|-------------|----------------|
 | **Public key** | `id_ed25519.pub` or `id_rsa.pub` | `ssh-ed25519 AAAA...` or `ssh-rsa AAAA...` | **YES - Submit this one** |
 | **Private key** | `id_ed25519` or `id_rsa` (no extension) | `-----BEGIN OPENSSH PRIVATE KEY-----` | **NEVER share this!** |
-
-### The Key Analogy
-
-Think of your SSH keys like a house key system:
-
-- **Public key** = The lock on your door. You can give copies to anyone who needs to let you in. It's useless without the matching key.
-- **Private key** = The actual key to your house. **Keep it secret, keep it safe.** Anyone with this key can pretend to be you.
 
 ### What to Submit
 
@@ -89,24 +106,6 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBzSomeRandomChars your.email@example.com
 **RSA-4096 public key** (long):
 ```
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHereLotsOfCharactersHere... your.email@example.com
-```
-
----
-
-## Requirements
-
-### File Format
-- **Format:** OpenSSH public key (`.pub` file content pasted into a text file)
-- **Naming:** `YYYY-FamilyName-FirstName.pub` (ASCII only)
-- **Key Type:** Ed25519 (recommended) or RSA (4096-bit minimum)
-
-### Example Submission
-
-File: `2026-Chen-Wei.pub`
-
-Contents:
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBzSomeRandomCharactersHere your.email@example.com
 ```
 
 ---
