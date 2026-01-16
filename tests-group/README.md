@@ -5,36 +5,26 @@ This folder contains group test cases and their outcomes for validating AI agent
 ## Requirements
 
 ### File Format
-- **Format:** Folder containing test files and documentation
-- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` (alphabetical order, ASCII only)
-- **Required:** `README.md` explaining tests and results
+- **Format:** Markdown (`.md`)
+- **Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (alphabetical order, ASCII only)
+- **Format:** Folder containing test code and cases (to be included in `project-code-group` submission)
 - **License:** Include license declaration (Apache-2.0 for code, CC-BY-4.0 for docs)
 
-### Folder Structure
 
-```
-2026-Chen-Lin-Wang/
-├── README.md              # Test documentation (required)
-├── test_cases.md          # Test case descriptions
-├── test_results.md        # Test outcomes and analysis
-└── test_*.py              # Test scripts (if applicable)
-```
-
-Use data from `data-group/2026-Chen-Lin-Wang/`
-
----
-
-## Content Requirements
+### Content Requirements
 
 Your test submission must include:
 
-| File | Description |
+| Field | Description |
 |------|-------------|
-| `README.md` | Overview of testing approach, how to run tests, summary of results |
-| `test_cases.md` | Detailed description of each test case |
-| `test_results.md` | Outcomes, pass/fail status, analysis |
+| **Overview** | Overview of testing approach |
+| **Test Summary** | Summary of results from all tests |
+| **Usage**| How to run tests |
+| **Known Issues** | When will a test not pass |
+| **Test Cases** | Test case documentation (see table below) |
+| **Test Results Analysis** | Analysis of the results |
 
-### Test Case Documentation
+#### Test Case Documentation
 
 Each test case should specify:
 
@@ -49,11 +39,20 @@ Each test case should specify:
 | **Status** | PASS / FAIL / PARTIAL |
 | **Notes** | Additional observations |
 
+#### Analysis of the Results
+
+| Field | Description |
+|-------|-------------|
+| **Result Summary** | Statistics on pass/fail |
+| **Failed Tests Analysis** | Describe the root cause, impact, and give a recommendation |
+| **Performance Metrics** | Total suite execution time, code coverage |
+| **Conclusion** | When can the system be used safely |
+
 ---
 
 ## Grading Criteria
 
-Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course.
+Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course, i.e. fulfilling all requirements in this file.
 
 ---
 
@@ -62,9 +61,10 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 ### README.md
 
 ```markdown
-# Test Suite: HRV Analysis Agent
+# Test Suite: HRV Analysis for Stress Detection Agent
 
 **Group:** 2026-Chen-Lin-Wang
+**Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
 **License:** Apache-2.0 (code), CC-BY-4.0 (documentation)
 
 ## Overview
@@ -87,7 +87,7 @@ This test suite validates the HRV Analysis Agent system. Tests cover:
 
 **Pass Rate:** 90%
 
-## How to Run Tests
+## Usage
 
 ```bash
 # Install dependencies
@@ -97,23 +97,19 @@ pip install -r requirements.txt
 python -m pytest tests/
 
 # Run specific test category
-python -m pytest tests/test_signal_processing.py
+python -m pytest tests/test_tools.py
 ```
 
 ## Known Issues
 
 1. TC-003 fails on corrupted data files (expected behavior, but error message unclear)
 2. TC-018 timeout on very large files (>10 min recordings)
-```
 
-### test_cases.md
+## Test Cases
 
-```markdown
-# Test Cases
+### Unit Tests: Data Loader
 
-## Unit Tests: Data Loader
-
-### TC-001: Load Valid ECG File
+#### TC-001: Load Valid ECG File
 
 - **Description:** Verify that a valid ECG text file loads correctly
 - **Preconditions:** Sample ECG file exists at test path
@@ -122,7 +118,7 @@ python -m pytest tests/test_signal_processing.py
 - **Actual Output:** NumPy array with 180,000 samples
 - **Status:** PASS
 
-### TC-002: Handle Missing File
+#### TC-002: Handle Missing File
 
 - **Description:** Verify graceful handling of missing file
 - **Preconditions:** None
@@ -131,7 +127,7 @@ python -m pytest tests/test_signal_processing.py
 - **Actual Output:** FileNotFoundError: "File not found: nonexistent_file.txt"
 - **Status:** PASS
 
-### TC-003: Handle Corrupted File
+#### TC-003: Handle Corrupted File
 
 - **Description:** Verify handling of corrupted/malformed data
 - **Preconditions:** Corrupted file with non-numeric content
@@ -141,11 +137,9 @@ python -m pytest tests/test_signal_processing.py
 - **Status:** FAIL
 - **Notes:** Error message does not indicate which line caused the problem
 
----
+### Unit Tests: Signal Processing
 
-## Unit Tests: Signal Processing
-
-### TC-004: Bandpass Filter Frequency Response
+#### TC-004: Bandpass Filter Frequency Response
 
 - **Description:** Verify filter passes 0.5-40 Hz, attenuates outside
 - **Preconditions:** None
@@ -154,7 +148,7 @@ python -m pytest tests/test_signal_processing.py
 - **Actual Output:** 94% in passband, 4% outside
 - **Status:** PASS
 
-### TC-005: R-Peak Detection Accuracy
+#### TC-005: R-Peak Detection Accuracy
 
 - **Description:** Verify R-peak detection on annotated dataset
 - **Preconditions:** MIT-BIH sample with known R-peak locations
@@ -163,11 +157,9 @@ python -m pytest tests/test_signal_processing.py
 - **Actual Output:** Sensitivity 97.2%, Precision 96.8%
 - **Status:** PASS
 
----
+### Integration Tests
 
-## Integration Tests
-
-### TC-010: Full Pipeline Execution
+#### TC-010: Full Pipeline Execution
 
 - **Description:** Verify complete pipeline from file to report
 - **Preconditions:** Valid ECG file, trained model
@@ -177,11 +169,9 @@ python -m pytest tests/test_signal_processing.py
 - **Status:** PASS
 - **Execution Time:** 28 seconds
 
----
+### End-to-End Tests
 
-## End-to-End Tests
-
-### TC-018: Large File Processing
+#### TC-018: Large File Processing
 
 - **Description:** Verify system handles 30-minute recording
 - **Preconditions:** Large ECG file
@@ -190,20 +180,16 @@ python -m pytest tests/test_signal_processing.py
 - **Actual Output:** Timeout after 10 minutes
 - **Status:** FAIL
 - **Notes:** Memory usage exceeded available RAM; needs optimization
-```
 
-### test_results.md
+## Test Results Analysis
 
-```markdown
-# Test Results Analysis
-
-## Summary
+### Result Summary
 
 Overall pass rate: 90% (18/20 tests)
 
-## Failed Tests Analysis
+### Failed Tests Analysis
 
-### TC-003: Handle Corrupted File
+#### TC-003: Handle Corrupted File
 
 **Root Cause:** The data loader catches the ValueError from NumPy but does not
 preserve line number information when re-raising.
@@ -214,7 +200,7 @@ file is still rejected appropriately.
 **Recommendation:** Enhance error handling to include line number in exception
 message.
 
-### TC-018: Large File Processing
+#### TC-018: Large File Processing
 
 **Root Cause:** The feature extraction step loads entire signal into memory
 for FFT computation. 30-minute recordings at 500 Hz require ~7.2 MB for raw
@@ -225,7 +211,7 @@ on machines with 8 GB RAM.
 
 **Recommendation:** Implement windowed processing for long recordings.
 
-## Performance Metrics
+### Performance Metrics
 
 | Metric | Value |
 |--------|-------|
@@ -233,7 +219,7 @@ on machines with 8 GB RAM.
 | Total suite execution time | 24 seconds |
 | Code coverage | 78% |
 
-## Conclusion
+### Conclusion
 
 The system passes core functionality tests. Two failures identified are
 edge cases that do not affect normal operation but should be addressed

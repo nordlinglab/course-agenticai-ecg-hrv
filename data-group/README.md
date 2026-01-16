@@ -12,6 +12,8 @@ This folder contains group data submissions used for training, testing, and demo
 
 ### Folder Structure
 
+Example of what your folder may look like.
+
 ```
 2026-Chen-Lin-Wang/
 ├── README.md              # Data documentation (required)
@@ -31,7 +33,7 @@ Your data submission must include:
 | File | Description |
 |------|-------------|
 | `README.md` | Data source, format, preprocessing steps, usage instructions |
-| Data files | Actual data used in your project |
+| Data files | Actual data used in your project or how to download it if publicly available |
 | `metadata.json` | Optional structured metadata |
 
 ### README.md Documentation
@@ -40,8 +42,11 @@ Your data README must specify:
 
 | Field | Description |
 |-------|-------------|
+| **Dataset Title** | Clear, descriptive name |
+| **Authors** | Group member names |
 | **Source** | Where the data came from (public dataset, self-collected, synthetic) |
 | **License** | License under which the data can be shared |
+| **Statistics** | Number of subjects, demographics, data length/number of samples, sampling rate |
 | **Format** | File format, encoding, structure |
 | **Preprocessing** | Any transformations applied |
 | **Privacy** | Confirmation that no PII is included |
@@ -51,7 +56,7 @@ Your data README must specify:
 
 ## Grading Criteria
 
-Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course.
+Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course, i.e. fulfilling all requirements in this file.
 
 ---
 
@@ -85,21 +90,44 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 ### README.md
 
 ```markdown
-# Data: HRV Analysis Dataset
+# Data: HRV Stress Analysis Dataset
 
 **Group:** 2026-Chen-Lin-Wang
-**License:** CC-BY-4.0
+**Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
+**License:** CC-BY-4.0 (this documentation); Original dataset CC-BY-NC-SA-4.0
 
-## Source
+## Dataset Overview
 
-This dataset contains preprocessed HRV features extracted from the SWELL-KW dataset.
+### Source
 
-**Original Source:** Koldijk, S., et al. (2014). The SWELL Knowledge Work Dataset.
+This dataset contains preprocessed HRV features and labells extracted from the SWELL-KW dataset. This is only a preprocessed part of the orginal data.
+
+**Original Source:** W. Kraaij, S. Koldijk, & M. Sappelli. (2014). The SWELL Knowledge Work Dataset for Stress and User Modeling Research.
 Available at: http://cs.ru.nl/~skoldijk/SWELL-KW/Dataset.html
+Download at: http://persistent-identifier.nl/?identifier=urn:nbn:nl:ui:13-kwrv-3e
 
-**Original License:** CC-BY-4.0
+### License
 
-## Data Description
+**Original License:**  CC-BY-NC-SA-4.0
+
+Citations required:
+
+1. W. Kraaij, S. Koldijk, & M. Sappelli. (2014). The SWELL Knowledge Work Dataset for Stress and User Modeling Research (Version V4) [dataset]. DANS Data Station Social Sciences and Humanities. https://doi.org/10.17026/DANS-X55-69ZP
+ 2. S. Koldijk, M. Sappelli, S. Verberne, M. A. Neerincx, and W. Kraaij, “The SWELL Knowledge Work Dataset for Stress and User Modeling Research,” Proc. 16th Int. Conf. Multimodal Interact. - ICMI ’14, pp. 291–298, 2014.
+
+### Statistics
+
+| Property | Value |
+|----------|-------|
+| Subjects | 25 |
+| Demographics | Mean age 25 ± s.d. 3.25 years; 17 male, 8 female |
+| Data Length | ~3 hours |
+| Sampling Rate | 500 Hz |
+| Total windows | ~5,000 |
+| Features | 6 HRV metrics |
+| Conditions | 3 (neutral, time pressure, interruptions) |
+
+### Format
 
 | File | Description | Format |
 |------|-------------|--------|
@@ -107,7 +135,7 @@ Available at: http://cs.ru.nl/~skoldijk/SWELL-KW/Dataset.html
 | `labels.csv` | Stress condition labels | CSV, UTF-8 |
 | `subject_info.csv` | Anonymized subject metadata | CSV, UTF-8 |
 
-### hrv_features.csv
+#### hrv_features.csv
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -120,7 +148,7 @@ Available at: http://cs.ru.nl/~skoldijk/SWELL-KW/Dataset.html
 | `hf_power` | float | High frequency power (ms²) |
 | `lf_hf_ratio` | float | LF/HF ratio |
 
-### labels.csv
+#### labels.csv
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -129,14 +157,18 @@ Available at: http://cs.ru.nl/~skoldijk/SWELL-KW/Dataset.html
 | `condition` | string | Stress condition (neutral/time_pressure/interruptions) |
 | `stress_label` | int | Binary label (0=neutral, 1=stressed) |
 
-## Preprocessing
+### Preprocessing
 
-1. ECG signals bandpass filtered (0.5-40 Hz)
+1. ECG signals bandpass filtered (0.5-40 Hz) with 4th order Butterworth filter
 2. R-peaks detected using Pan-Tompkins algorithm
 3. HRV features computed over 3-minute windows with 50% overlap
 4. Outlier windows removed (RR interval < 300ms or > 2000ms)
 
-## Usage
+### Privacy
+
+This dataset contains no personally identifiable information. Subject IDs are anonymized (S01-S25) and cannot be linked to individuals. The original SWELL-KW dataset was collected with informed consent and IRB approval.
+
+### Usage
 
 ```python
 import pandas as pd
@@ -155,21 +187,6 @@ test_subjects = [f'S{i:02d}' for i in range(22, 26)]
 train_data = data[data['subject_id'].isin(train_subjects)]
 test_data = data[data['subject_id'].isin(test_subjects)]
 ```
-
-## Privacy Statement
-
-This dataset contains no personally identifiable information. Subject IDs are
-anonymized (S01-S25) and cannot be linked to individuals. The original SWELL-KW
-dataset was collected with informed consent and IRB approval.
-
-## Statistics
-
-| Metric | Value |
-|--------|-------|
-| Total subjects | 25 |
-| Total windows | ~5,000 |
-| Features | 6 HRV metrics |
-| Conditions | 3 (neutral, time pressure, interruptions) |
 ```
 
 ---
@@ -197,7 +214,7 @@ dataset was collected with informed consent and IRB approval.
   "version": "1.0",
   "created": "2026-01-15",
   "authors": ["Chen Wei", "Lin MeiLing", "Wang XiaoMing"],
-  "license": "CC-BY-4.0",
+  "license": "CC-BY-NC-SA-4.0",
   "source": "SWELL-KW",
   "n_subjects": 25,
   "n_samples": 5000,
@@ -217,10 +234,22 @@ For HRV/ECG analysis projects, consider these publicly available datasets:
 
 | Dataset | Description | License | URL |
 |---------|-------------|---------|-----|
-| **SWELL-KW** | Stress during knowledge work | CC-BY-4.0 | [Link](http://cs.ru.nl/~skoldijk/SWELL-KW/) |
+| **SWELL-KW** | Stress during knowledge work | CC-BY-NC-SA-4.0 | [Link](http://cs.ru.nl/~skoldijk/SWELL-KW/) |
 | **WESAD** | Wearable stress detection | CC-BY-4.0 | [Link](https://archive.ics.uci.edu/ml/datasets/WESAD) |
 | **MIT-BIH** | Arrhythmia database | ODC-BY | [Link](https://physionet.org/content/mitdb/) |
 | **PTB-XL** | Large ECG dataset | CC-BY-4.0 | [Link](https://physionet.org/content/ptb-xl/) |
+
+---
+
+## Why Separate Data from Code?
+
+| Reason | Explanation |
+|--------|-------------|
+| **Size** | Datasets are large (>1 GB); code is small (~100 KB) |
+| **Versioning** | Data rarely changes; code evolves frequently |
+| **Licensing** | Data has restrictions (non-commercial); code is Apache-2.0 |
+| **Reproducibility** | Others can use the code with different datasets |
+| **Git efficiency** | Large binary files shouldn't be in code repositories |
 
 ---
 

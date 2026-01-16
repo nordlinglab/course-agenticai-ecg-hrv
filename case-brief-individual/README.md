@@ -8,7 +8,7 @@ This folder contains individual case briefs written by each student and each gro
 
 - **Format:** Markdown (`.md`)
 - **Naming Individual:** `YYYY-FamilyName-FirstName.md` (ASCII characters only)
-- **Naming Group:** `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (ASCII characters only)
+- **Naming Group:** `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (alphabetical order, ASCII only)
 - **License:** Include license declaration (CC-BY-4.0 recommended)
 
 First each student submit their own case brief, after discussing and reaching consensus the group submits its case brief. Updates to the group case brief are allowed until the implementation is presented.

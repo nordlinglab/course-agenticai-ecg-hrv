@@ -20,6 +20,7 @@ Your reflection must address:
 
 | Section | Description |
 |---------|-------------|
+| **Authors** | Group member names |
 | **Tools** | Which tools did you use? |
 | **Task Description** | What task did you compare? |
 | **Agent Approach** | How did your AI agent solve the task? |
@@ -32,7 +33,7 @@ Your reflection must address:
 
 ## Grading Criteria
 
-Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course.
+Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course, i.e. fulfilling all requirements in this file.
 
 ---
 
@@ -42,16 +43,17 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 # Reflection: Agent vs Chat-Based HRV Analysis
 
 **Group:** 2026-Chen-Lin-Wang
+**Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
 **License:** CC-BY-4.0
 
 ## Tools
 
-Antigravity (Gemini 3.0 pro) vs. ChatGPT-4
+Claude Code (Opus 4.5) vs. ChatGPT-4
 
 ## Task Description
 
 We compared approaches for analyzing a 6-minute ECG recording to extract
-HRV metrics and generate a fatigue assessment report.
+HRV metrics and generate a stress assessment report.
 
 ## Agent Approach
 
@@ -59,7 +61,7 @@ Our AI agent system:
 1. Automatically loaded the ECG data file
 2. Applied bandpass filtering (0.5-40 Hz)
 3. Detected R-peaks using Pan-Tompkins algorithm
-4. Calculated time-domain HRV metrics (SDNN, RMSSD, pNN50)
+4. Calculated six HRV metrics (SDNN, RMSSD, PNN50, LF power, HF power, LF/HF ratio)
 5. Generated a structured report with visualizations
 
 The agent completed the full pipeline in ~30 seconds with no manual intervention
@@ -104,7 +106,7 @@ The performance difference occurs because:
 ## Lessons Learned
 
 - Agentic AI excels at **repetitive, multi-step workflows** with clear structure
-- Chat-based AI is better for **exploratory, one-off tasks** where flexibility matters
+- Chat-based AI is better for **exploratory, one-off questions** where flexibility matters
 - The agent's value increases with task complexity and repetition
 - Initial agent setup requires more effort, but amortizes over multiple runs
 ```
