@@ -12,11 +12,13 @@ This folder contains group project source code for AI agent systems.
 
 ### Folder Structure
 
+Example of what your folder may look like.
+
 ```
 2026-Chen-Lin-Wang/
 ├── README.md              # Project documentation (required)
-├── requirements.txt       # Python dependencies (if applicable)
-├── setup.py              # Package setup (optional)
+├── requirements.txt       # Python dependencies (required)
+├── setup.py              # Package setup
 ├── src/                  # Source code
 │   ├── __init__.py
 │   ├── orchestrator.py   # Agent orchestrator
@@ -25,13 +27,14 @@ This folder contains group project source code for AI agent systems.
 │   │   ├── ecg_loader.py
 │   │   ├── signal_processor.py
 │   │   ├── feature_extractor.py
+│   │   ├── hrv_loader.py
 │   │   ├── classifier.py
 │   │   └── report_generator.py
 │   └── utils/            # Utility functions
 │       └── __init__.py
 ├── models/               # Trained models (if small enough)
 │   └── classifier.joblib
-├── config/               # Configuration files
+├── config/               # Configuration files (required)
 │   └── config.yaml
 └── scripts/              # Utility scripts
     └── run_analysis.py
@@ -57,19 +60,22 @@ Your project README must include:
 | Section | Description |
 |---------|-------------|
 | **Project Title** | Clear, descriptive name |
+| **Authors** | Group member names |
+| **License** | Apache-2.0 declaration |
 | **Description** | What the system does |
+| **Requirements** | What is needed to run the system |
+| **API Keys** | What credentials are needed (without including actual keys) |
 | **Installation** | Step-by-step setup instructions |
 | **Usage** | How to run the system with examples |
 | **Architecture** | Brief overview of system design |
-| **API Keys** | What credentials are needed (without including actual keys) |
-| **License** | Apache-2.0 declaration |
-| **Authors** | Group member names |
+| **Testing** | How to test the system |
+| **Known Issues** | When will the system not work |
 
 ---
 
 ## Grading Criteria
 
-Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course.
+Deliverable scored as passed (1) if handed in with acceptable quality before the end of the course, i.e. fulfilling all requirements in this file.
 
 ---
 
@@ -101,23 +107,33 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 ### README.md
 
 ```markdown
-# HRV Analysis Agent
+# HRV Analysis for Stress Detection Agent
 
-An AI agent system for automated heart rate variability analysis and fatigue detection.
+An AI agent system for automated heart rate variability analysis and stress detection based on electrocardiography.
 
 **Group:** 2026-Chen-Lin-Wang
+**Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
 **License:** Apache-2.0
 
 ## Description
 
-This system uses Claude Opus 4.5 as an orchestrator to coordinate ECG signal
-processing, HRV feature extraction, machine learning classification, and
-report generation. Given a raw ECG recording, it produces an interpretable
-PDF report with fatigue assessment.
+This system uses Claude Opus 4.5 as an orchestrator to coordinate machine learning classification, and report generation. Given either a raw ECG recording or 6 HRV features (SDNN, RMSSD, PNN50, LF power, HF power, LF/HF ratio), it determines which tools to use and produces an interpretable PDF report with stress assessment.
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.11+ (incl. venv)
+
+Key Python package dependencies (see `requirements.txt` for full list):
+
+- `anthropic>=0.18.0` - Claude API client
+- `numpy>=1.24.0` - Numerical computing
+- `scipy>=1.11.0` - Signal processing
+- `scikit-learn>=1.3.0` - Machine learning
+- `matplotlib>=3.7.0` - Visualization
+- `reportlab>=4.0.0` - PDF generation
+
+## API Keys
+
 - Anthropic API key
 
 ## Installation
@@ -138,7 +154,7 @@ cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
 ```
 
-## Configuration
+### Configuration
 
 Create a `.env` file with the following:
 
@@ -155,6 +171,9 @@ ANTHROPIC_API_KEY=your_api_key_here
 ```bash
 # Analyze a single ECG file
 python scripts/run_analysis.py --input data/ecg_sample.txt --output reports/
+
+# or an HRV file
+python scripts/run_analysis.py --input data/hrv_features.csv --output reports/
 
 # With custom configuration
 python scripts/run_analysis.py --input data/ecg_sample.txt --config config/config.yaml
@@ -177,6 +196,79 @@ result = agent.run(
 print(f"Report generated: {result}")
 ```
 
+### Code Examples
+
+#### Orchestrator Pattern
+
+```python
+import anthropic
+from typing import Any
+
+class HRVAnalysisOrchestrator:
+    """Orchestrates HRV analysis workflow using Claude as the coordinator."""
+
+    def __init__(self):
+        self.client = anthropic.Anthropic()
+        self.model = "claude-opus-4-5-20251101"
+        self.tools = self._define_tools()
+        self.state = {}
+
+    def _define_tools(self) -> list[dict]:
+        """Define available tools for the agent."""
+        return [
+            {
+                "name": "load_ecg",
+                "description": "Load ECG data from a text file",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "sampling_rate": {"type": "integer", "default": 500}
+                    },
+                    "required": ["file_path"]
+                }
+            },
+            # ... additional tools
+        ]
+
+    def run(self, ecg_file: str, output_path: str) -> str:
+        """Execute the complete analysis pipeline."""
+        # Implementation here
+        pass
+```
+
+#### Tool Implementation Pattern
+
+```python
+import numpy as np
+from scipy.signal import butter, filtfilt
+
+def process_signal(ecg_data: dict) -> dict:
+    """
+    Process raw ECG signal: filter and detect R-peaks.
+
+    Args:
+        ecg_data: Dictionary with 'signal' and 'sampling_rate' keys
+
+    Returns:
+        Dictionary with processed signal and detected R-peak indices
+    """
+    signal = ecg_data["signal"]
+    fs = ecg_data["sampling_rate"]
+
+    # Bandpass filter
+    filtered = bandpass_filter(signal, fs, 0.5, 40.0)
+
+    # R-peak detection
+    r_peaks = detect_r_peaks(filtered, fs)
+
+    return {
+        "filtered_signal": filtered,
+        "r_peaks": r_peaks,
+        "rr_intervals": np.diff(r_peaks) / fs * 1000  # in ms
+    }
+```
+
 ## Architecture
 
 ```
@@ -192,15 +284,16 @@ print(f"Report generated: {result}")
 └───────┘ └───────┘ └─────────┘ └────────┘ └───────┘
 ```
 
-## Project Structure
+### Project Structure
 
 ```
 ├── src/
 │   ├── orchestrator.py      # Main agent orchestrator
 │   ├── tools/
 │   │   ├── ecg_loader.py    # ECG file loading
-│   │   ├── signal_processor.py  # Filtering, R-peak detection
+│   │   ├── signal_processor.py # Filtering, R-peak detection
 │   │   ├── feature_extractor.py # HRV metric calculation
+│   │   ├── hrv_loader.py    # HRV file loading
 │   │   ├── classifier.py    # Fatigue classification
 │   │   └── report_generator.py  # PDF report generation
 │   └── utils/
@@ -212,17 +305,6 @@ print(f"Report generated: {result}")
 └── scripts/
     └── run_analysis.py      # CLI entry point
 ```
-
-## Dependencies
-
-Key dependencies (see `requirements.txt` for full list):
-
-- `anthropic>=0.18.0` - Claude API client
-- `numpy>=1.24.0` - Numerical computing
-- `scipy>=1.11.0` - Signal processing
-- `scikit-learn>=1.3.0` - Machine learning
-- `matplotlib>=3.7.0` - Visualization
-- `reportlab>=4.0.0` - PDF generation
 
 ## Testing
 
@@ -239,16 +321,7 @@ python -m pytest tests/ --cov=src
 - Large files (>30 minutes) may cause memory issues
 - Requires stable internet connection for Claude API
 
-## Authors
-
-- Chen Wei
-- Lin MeiLing
-- Wang XiaoMing
-
-## License
-
-This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
-```
+## Additional Files
 
 ### requirements.txt
 
@@ -306,80 +379,6 @@ report:
   include_plots: true
   language: en
 ```
-
----
-
-## Code Examples
-
-### Orchestrator Pattern
-
-```python
-import anthropic
-from typing import Any
-
-class HRVAnalysisOrchestrator:
-    """Orchestrates HRV analysis workflow using Claude as the coordinator."""
-
-    def __init__(self):
-        self.client = anthropic.Anthropic()
-        self.model = "claude-opus-4-5-20251101"
-        self.tools = self._define_tools()
-        self.state = {}
-
-    def _define_tools(self) -> list[dict]:
-        """Define available tools for the agent."""
-        return [
-            {
-                "name": "load_ecg",
-                "description": "Load ECG data from a text file",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {"type": "string"},
-                        "sampling_rate": {"type": "integer", "default": 500}
-                    },
-                    "required": ["file_path"]
-                }
-            },
-            # ... additional tools
-        ]
-
-    def run(self, ecg_file: str, output_path: str) -> str:
-        """Execute the complete analysis pipeline."""
-        # Implementation here
-        pass
-```
-
-### Tool Implementation Pattern
-
-```python
-import numpy as np
-from scipy.signal import butter, filtfilt
-
-def process_signal(ecg_data: dict) -> dict:
-    """
-    Process raw ECG signal: filter and detect R-peaks.
-
-    Args:
-        ecg_data: Dictionary with 'signal' and 'sampling_rate' keys
-
-    Returns:
-        Dictionary with processed signal and detected R-peak indices
-    """
-    signal = ecg_data["signal"]
-    fs = ecg_data["sampling_rate"]
-
-    # Bandpass filter
-    filtered = bandpass_filter(signal, fs, 0.5, 40.0)
-
-    # R-peak detection
-    r_peaks = detect_r_peaks(filtered, fs)
-
-    return {
-        "filtered_signal": filtered,
-        "r_peaks": r_peaks,
-        "rr_intervals": np.diff(r_peaks) / fs * 1000  # in ms
-    }
 ```
 
 ---
