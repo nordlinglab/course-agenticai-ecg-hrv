@@ -5,6 +5,7 @@ This folder contains group presentation slides for the final demonstration.
 ## Requirements
 
 ### File Format
+
 - **Format:** LaTeX Beamer (`.tex`) with Figures (`.pdf`,`.png`, or `.jpg`)
 - **Template:** NordlingLab Beamer 16:9 template (required)
 - **Compiler:** XeLaTeX (required for the template)
@@ -30,7 +31,7 @@ Your presentation should cover:
 | Title slide | 1 |
 | Problem (What?) & Motivation (Why?) | 1-2 |
 | System Architecture | 2-3 |
-| Demo / Results | 2-3 |
+| Demo / Results & Evaluation | 2-3 |
 | Challenges & Lessons Learned | 1-2 |
 | Conclusion & Q&A | 1 |
 

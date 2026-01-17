@@ -53,6 +53,7 @@ student-material-ecg-hrv/
 ├── tests-group/                   # Group test cases and results document (Markdown)
 │
 ├── slides-demonstration-group/    # Group presentation slides (Beamer .tex)
+├── video-demonstration-group/    # Group video link to YouTube (.txt)
 └── system-design-group/           # Group system design diagrams (draw.io .drawio)
 ```
 
@@ -65,14 +66,11 @@ The example data and code repositories are included as git submodules:
 | `data-group/2026-Chen-Lin-Wang-data` | `https://github.com/nordlinglab/course-agenticai-ecg-hrv-example-data.git` | `git@github.com:nordlinglab/course-agenticai-ecg-hrv-example-data.git` |
 | `project-code-group/2026-Chen-Lin-Wang-code` | `https://github.com/nordlinglab/course-agenticai-ecg-hrv-example-code.git` | `git@github.com:nordlinglab/course-agenticai-ecg-hrv-example-code.git` |
 
-**For maintainers:** To set up these submodules, run from the main course repository:
-```bash
-# From nordlinglab-course-agenticai/ directory
-chmod +x src/setup_example_submodules.sh
-./src/setup_example_submodules.sh --help    # See all options
-./src/setup_example_submodules.sh           # Use defaults
-./src/setup_example_submodules.sh --register  # Initialize, push, and register
-```
+**Clone the repository with submodules**:
+   ```bash
+   git clone --recursive https://github.com/nordlinglab/nordlinglab-course-agenticai-ecg-hrv.git
+   cd nordlinglab-course-agenticai-ecg-hrv
+   ```
 
 ---
 
@@ -115,6 +113,7 @@ Examples:
 | Test Cases (Group) | Markdown `.md` with reference to `tests/` in project code | `tests-group/` |
 | System Design (Group) | draw.io `.drawio` XML (UML standard) | `system-design-group/` |
 | Presentation Slides (Group) | Beamer `.tex` (NordlingLab 16:9 template) | `slides-demonstration-group/` |
+| Video Demonstration (Group) | YouTube link `.txt` | `video-demonstration-group/` |
 | Reflection (Group) | Markdown `.md` | `reflection-group/` |
 | Technical Report (Individual) | Markdown `.md` | `report-individual/` |
 
@@ -126,7 +125,7 @@ See the `README.md` in each folder for detailed requirements, grading criteria, 
 |------|------|-----------------|
 | Fri 2026-01-16 | 10:00 | SSH Public Key, Case Brief |
 | Tue 2026-01-20 | 13:00 | Data, Project Code, Test Cases, System Design |
-| Wed 2026-01-21 | 13:00 | Presentation Slides, Reflection |
+| Wed 2026-01-21 | 13:00 | Presentation Slides, Video, Reflection |
 | Fri 2026-01-23 | 13:00 | Technical Report |
 
 **All times are Taiwan Standard Time (UTC+8).**
