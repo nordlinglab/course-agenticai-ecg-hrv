@@ -83,9 +83,7 @@
         \end{column}
         \begin{column}{0.35\textwidth}
             \centering
-            % If you have an image, include it here:
-            % \includegraphics[width=\textwidth]{2026-Wei-Wu-Zheng-drowsy-driver.png}
-            \textit{[Drowsy driver illustration]}
+            \includegraphics[width=\textwidth]{2026-Wei-Wu-Zheng-drowsy-driver.png}
         \end{column}
     \end{columns}
 \end{frame}
@@ -125,45 +123,28 @@
 % SLIDE 5: THREE-AGENT ARCHITECTURE
 % ============================================
 \begin{frame}{Three-Agent Agentic AI Architecture}
-    \centering
-    \textbf{Multi-Agent Pipeline Design}
-
-    \vspace{1em}
-    \begin{tabular}{ccccc}
-        \fbox{\parbox{2.5cm}{\centering \textbf{Agent 1}\\Signal Filter}} &
-        $\longrightarrow$ &
-        \fbox{\parbox{2.5cm}{\centering \textbf{Agent 2}\\Feature Extraction}} &
-        $\longrightarrow$ &
-        \fbox{\parbox{2.8cm}{\centering \textbf{Agent 3}\\Decision + MCP}}
-    \end{tabular}
-
-    \vspace{1.5em}
     \begin{columns}
-        \begin{column}{0.32\textwidth}
-            \textbf{Agent 1:}
+        \begin{column}{0.55\textwidth}
+            \centering
+            \includegraphics[width=\textwidth]{2026-Wei-Wu-Zheng-architecture.pdf}
+        \end{column}
+        \begin{column}{0.43\textwidth}
+            \textbf{Agent 1 - Signal Filter:}
             \begin{itemize}
                 \item Bandpass filter (0.5-40 Hz)
-                \item Notch filter (50 Hz)
-                \item Artifact detection
-                \item Normalization
+                \item Notch filter, Normalization
             \end{itemize}
-        \end{column}
-        \begin{column}{0.32\textwidth}
-            \textbf{Agent 2:}
+
+            \textbf{Agent 2 - Feature Extraction:}
             \begin{itemize}
                 \item R-peak detection
-                \item RR interval calc.
-                \item Heart Rate (HR)
-                \item HRV metrics (SDNN, RMSSD)
+                \item HR, HRV metrics (SDNN, RMSSD)
             \end{itemize}
-        \end{column}
-        \begin{column}{0.32\textwidth}
-            \textbf{Agent 3:}
+
+            \textbf{Agent 3 - Decision + MCP:}
             \begin{itemize}
-                \item Multi-factor scoring
+                \item Multi-factor risk scoring
                 \item MCP tool queries
-                \item Baseline comparison
-                \item Report generation
             \end{itemize}
         \end{column}
     \end{columns}
@@ -275,39 +256,12 @@
     \centering
     \textbf{Streamlit Web Application}
 
-    \vspace{1em}
-    % If you have a screenshot, include it:
-    % \includegraphics[width=0.85\textwidth]{2026-Wei-Wu-Zheng-screenshot.png}
+    \vspace{0.5em}
+    
+    \includegraphics[width=0.85\textwidth]{2026-Wei-Wu-Zheng-screenshot.png}
 
-    \begin{columns}
-        \begin{column}{0.3\textwidth}
-            \textbf{Left Panel:}
-            \begin{itemize}
-                \item Upload ECG file
-                \item Set sampling rate
-                \item Set driving duration
-            \end{itemize}
-        \end{column}
-        \begin{column}{0.3\textwidth}
-            \textbf{Main Area:}
-            \begin{itemize}
-                \item Agent status
-                \item HR/HRV metrics
-                \item Risk assessment
-            \end{itemize}
-        \end{column}
-        \begin{column}{0.3\textwidth}
-            \textbf{Visualization:}
-            \begin{itemize}
-                \item ECG waveform
-                \item Risk gauge
-                \item Recommendations
-            \end{itemize}
-        \end{column}
-    \end{columns}
-
-    \vspace{1em}
-    \textit{Demo: streamlit run app.py}
+    \vspace{0.5em}
+    \footnotesize{\textit{Figure: Real-time driver fatigue monitoring dashboard}}
 \end{frame}
 
 % ============================================
