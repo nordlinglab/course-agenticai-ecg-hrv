@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,33 +28,6 @@ MIN_SAMPLES_FOR_PROCESS = 2_000
 MIN_RPEAKS_FOR_HRV = 3
 
 app = FastAPI(title="ECG Service", version="1.1.0")
-=======
-import os
-import json
-import time
-import threading
-from datetime import datetime
-from typing import List, Dict, Optional
-
-import numpy as np
-import scipy.signal as signal
-import matplotlib.pyplot as plt
-import wfdb
-from fastapi import FastAPI, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-
-from models import EcgSegment, EcgFeatures, BioStatus, UserBaseline, PomodoroSummary
-
-# Configuration
-STORAGE_DIR = "data"
-os.makedirs(STORAGE_DIR, exist_ok=True)
-BIO_STATUS_FILE = os.path.join(STORAGE_DIR, "bio_status.json")
-BASELINE_FILE = os.path.join(STORAGE_DIR, "user_baseline.json")
-SUMMARY_FILE = os.path.join(STORAGE_DIR, "pomodoro_summary.json")
-
-APP_ORIGINS = ["http://localhost:3000"]
-app = FastAPI(title="ECG Service", version="1.0.0")
->>>>>>> 7f0a1abcdb0603d56a817dad24a0d446c063c9e9
 
 app.add_middleware(
     CORSMiddleware,
@@ -402,7 +374,6 @@ def _process_segment(segment: EcgSegment) -> Tuple[_QualityReport, RPeaksInfo, H
 
 
 @app.get("/health")
-<<<<<<< HEAD
 def health() -> Dict[str, bool]:
     return {"ok": True}
 
@@ -505,56 +476,4 @@ def end_pomodoro(req: PomodoroWorkRequest) -> PomodoroWorkSummary:
         hrv_time=hrv_total,
         rr_summary=rr_sum,
         trend_1min=trend,
-=======
-def health():
-    return {"status": "ok", "processing": processing_active}
-
-@app.post("/ecg/pomodoro/end", response_model=PomodoroSummary)
-def end_pomodoro(session_id: str, duration_min: int = 25):
-    """Triggered when pomodoro ends to generate summary."""
-    fs = 360
-    # Simulate data for a representative 30-second segment
-    raw, fs = get_mit_bih_data(sampto=fs * 30) 
-    res = process_ecg(raw, fs)
-    plot_path = generate_vis(res, fs, f"summary_{session_id}.png")
-    
-    summary = PomodoroSummary(
-        session_id=session_id,
-        start_time=int(time.time() - duration_min * 60),
-        end_time=int(time.time()),
-        avg_hr=round(res['hr_bpm'], 2),
-        avg_sdnn=round(res['sdnn_ms'], 2),
-        stress_percentage=30.0, # Placeholder
-        total_samples=len(raw),
-        plot_url=plot_path
-    )
-    
-    with open(SUMMARY_FILE, "w") as f:
-        json.dump(summary.dict(), f)
-        
-    return summary
-
-@app.post("/ecg/features", response_model=EcgFeatures)
-def ecg_features(segment: EcgSegment) -> EcgFeatures:
-    """Manual feature extraction endpoint."""
-    fs = segment.sampling_rate_hz
-    # Flatten samples if provided as [[s1], [s2]]
-    raw = np.array(segment.samples).flatten()
-    res = process_ecg(raw, fs)
-    
-    # Calculate wave durations in ms
-    p_wave_ms = (res['p_waves'][0][1] - res['p_waves'][0][0]) / fs * 1000 if res['p_waves'] else 0
-    t_wave_ms = (res['t_waves'][0][1] - res['t_waves'][0][0]) / fs * 1000 if res['t_waves'] else 0
-    qrs_ms = (res['qrs'][0][1] - res['qrs'][0][0]) / fs * 1000 if res['qrs'] else 0
-    
-    return EcgFeatures(
-        segment_id=segment.segment_id,
-        p_wave_ms=round(p_wave_ms, 2),
-        t_wave_ms=round(t_wave_ms, 2),
-        qrs_complex_ms=round(qrs_ms, 2),
-        rr_intervals_ms=[round(x, 2) for x in res['rr_ms']],
-        hrv_sdnn_ms=round(res['sdnn_ms'], 2),
-        hr_bpm=round(res['hr_bpm'], 2),
-        quality={"signal_ok": True}
->>>>>>> 7f0a1abcdb0603d56a817dad24a0d446c063c9e9
     )
