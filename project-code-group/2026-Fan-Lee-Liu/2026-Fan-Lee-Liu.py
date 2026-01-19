@@ -12,7 +12,7 @@ from scipy.integrate import trapezoid
 # 取得路徑邏輯：當前位置 -> 往上二層 -> data-group/2026-Liu-Fan-Lee/
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(os.path.dirname(current_script_dir))
-target_folder = os.path.join(root_dir, 'data-group', '2026-Fan-Lee-Liu')
+target_folder = os.path.join(root_dir, 'data-group', '2026-Fan-Lee-Liu', 'raw')
 
 FS = 50  # 取樣率 50Hz
 WINDOW_SIZE = int(0.15 * FS)

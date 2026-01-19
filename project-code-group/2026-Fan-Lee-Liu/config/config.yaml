@@ -1,0 +1,18 @@
+signal:
+  sampling_rate: 50
+  bandpass_low: 5.0
+  bandpass_high: 15.0
+  filter_order: 1
+
+features:
+  window_size: 8
+  overlap: 0.5
+
+classifier:
+  model_path: ../models/classifier.joblib
+  threshold: 0.5
+
+report:
+  template: default
+  include_plots: true
+  language: en
