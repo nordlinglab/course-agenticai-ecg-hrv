@@ -2,7 +2,7 @@
 
 **Group:** 2026-Chu-Lin-Lin  
 **Authors:** Chu YenChieh,Lin ChihYi,Lin WenHsin  
-**Date:** 2026-01-16
+**Date:** 2026-01-20
 **License:** Apache-2.0 (code), CC-BY-4.0 (documentation)
 
 ---
@@ -24,13 +24,18 @@ The goal of the test suite is to ensure that the system behaves consistently and
 
 ## Test Summary
 
-| Category | Description | Status |
-|--------|-------------|--------|
-| Unit Tests | Individual tools (loader, signal processing, features, helpers) | PASS |
-| Integration Tests | Orchestrator-level pipeline behavior | PASS |
-| End-to-End Tests | Dataset-level execution with real CSV inputs | PARTIAL |
+### Overall Test Execution
 
-**Overall Status:** PASS (with known limitations)
+-   **Total Tests Collected:** 274
+-   **Tests Passed:** 274
+-   **Tests Failed:** 0
+-   **Warnings:** 9
+
+
+
+*Note: Detailed numerical counts for "Total", "Passed", and "Failed" are provided for the overall execution. Per-category breakdowns are not available in this summary. The "Status" column in the original summary (if present) indicated high-level completion and success.*
+
+Overall Status: PASS (with warnings)
 
 ---
 
@@ -158,23 +163,16 @@ python -m pytest tests/test_orchestrator.py
 ### Result Summary
 
 - Core functionality tests passed successfully
-
 - No critical failures affecting baseline evaluation logic
 
-- Failures observed only in legacy or unused classifier-related paths
----
+### Warnings Analysis
 
-### Failed Tests Analysis
+Several warnings were observed during test execution:
 
-Classifier-related tests
-
-- Root Cause: Tests assume availability of trained ML models.
-
-- Impact: None on current system, as classifier training is outside project scope.
-
-- Recommendation: Mark classifier tests as optional or refactor for future learning-based extensions.
-
----
+-   **`DeprecationWarning: datetime.datetime.utcfromtimestamp()`**: This is a deprecation warning from the Python standard library `dateutil` module. It does not impact the system's functionality but indicates that the usage of `utcfromtimestamp()` will be removed in future Python versions.
+-   **`FutureWarning: Class PassiveAggressiveClassifier is deprecated`**: This warning confirms the "Legacy classifier tests" known issue. While the classifier tests passed, `PassiveAggressiveClassifier` is deprecated in `scikit-learn`. The recommendation is to use `SGDClassifier` instead. This does not impact the current rule-based system, as classifier training is outside the project's scope, but highlights a need for future refactoring if ML models are integrated.
+-   **`RuntimeWarning: invalid value encountered in reduce`**: These warnings occurred during `TestValidateEcgData::test_validate_data_with_inf`. This is expected behavior as the test is specifically designed to handle and validate malformed input data containing `inf` values.
+-   **`UserWarning: loadtxt: input contained no data`**: This warning originated from `TestECGLoader::test_load_empty_file`. This is also expected, as the test aims to verify the loader's behavior when encountering an empty file.
 
 ### Performance Metrics
 
@@ -193,5 +191,5 @@ Within the defined operational boundaries, the system can be used safely for dat
 
 ---
 
-*Report generated on 2026-01-19*
+*Report generated on 2026-01-20*
 
