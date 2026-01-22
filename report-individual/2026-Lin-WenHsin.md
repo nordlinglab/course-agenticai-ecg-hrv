@@ -104,7 +104,7 @@ The system follows a **modular agent architecture** with a central Orchestrator 
 │                                                        └──────────────┘  │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
-
+```
 ### Component Descriptions
 
 | Component | Type | Description |
