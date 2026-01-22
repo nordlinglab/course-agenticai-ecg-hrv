@@ -26,10 +26,10 @@ The goal of the test suite is to ensure that the system behaves consistently and
 
 ### Overall Test Execution
 
--   **Total Tests Collected:** 274
--   **Tests Passed:** 274
+-   **Total Tests Collected:** 101
+-   **Tests Passed:** 101
 -   **Tests Failed:** 0
--   **Warnings:** 9
+-   **Warnings:** 1
 
 
 
@@ -192,4 +192,5 @@ Within the defined operational boundaries, the system can be used safely for dat
 ---
 
 *Report generated on 2026-01-20*
+
 
