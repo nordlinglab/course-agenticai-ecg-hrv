@@ -29,7 +29,7 @@ Your case brief must include:
 | **Problem Statement/Definition** | What problem are you addressing? Why does it matter? |
 | **Context/Background** | Industry context, stakeholders, current solutions, cost |
 | **Analysis** | Root cause analysis, constraints, requirements |
-| **Proposed Approach/Solution proposal** | How can you solve it using a Chat-based AI, e.g. ChatGPT? How could an AI agent address this problem? |
+| **Proposed Approach/Solution Proposal** | How can you solve it using a Chat-based AI, e.g. ChatGPT? How could an AI agent address this problem? |
 | **Expected Outcomes** | What would success look like? |
 | **References** | Sources cited (if any) |
 
@@ -58,6 +58,7 @@ Scoring is relative to the example brief provided by the instructor.
 # Case Brief: Automated Patient Triage in Emergency Departments
 
 **Author:** 2026-Example-Student
+
 **License:** CC-BY-4.0
 
 ## Problem Statement
@@ -67,9 +68,10 @@ limited staff. Triage—the process of prioritizing patients by severity—is
 critical but time-consuming. Delays in triage can lead to adverse outcomes
 for high-acuity patients.
 
-## Context/Background
+## Context
 
 - Average ED wait times exceed 2 hours in urban hospitals
+- Patients want to be prioritised
 - Triage nurses spend 5-10 minutes per patient assessment
 - Misclassification rates range from 10-30% depending on experience
 - Current electronic health record (EHR) systems provide limited decision support
@@ -102,9 +104,9 @@ A nurse could:
 ## Proposed Approach (Agentic)
 
 An AI agent system could:
-1. **Collect** patient data from multiple sources (vitals monitors, intake forms)
+1. **Collect** patient data automatically from multiple sources (vitals monitors, intake forms)
 2. **Analyze** using trained models on historical triage outcomes
-3. **Recommend** priority level with explanation
+3. **Recommend** priority level with explanation feed directly into EHR after the triage nurse's decision
 4. **Learn** from nurse feedback and patient outcomes
 
 The agent would augment (not replace) nurse decision-making, flagging
