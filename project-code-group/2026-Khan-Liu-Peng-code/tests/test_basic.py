@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import pytest
 import numpy as np
 import neurokit2 as nk

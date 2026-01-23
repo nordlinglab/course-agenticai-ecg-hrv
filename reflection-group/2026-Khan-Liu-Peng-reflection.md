@@ -2,7 +2,7 @@
 
 **Group:** [Admin / Team Name]  
 **Year:** 2026  
-
+**License:** CC-BY-4.0  
 ---
 
 ## 1. What Worked Well

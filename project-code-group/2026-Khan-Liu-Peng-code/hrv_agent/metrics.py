@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import neurokit2 as nk
 import pandas as pd
 import numpy as np

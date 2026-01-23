@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import argparse
 from hrv_agent.agent import HRVCoachAgent
 from hrv_agent.config import Config

@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import openai
 import numpy as np
 import json

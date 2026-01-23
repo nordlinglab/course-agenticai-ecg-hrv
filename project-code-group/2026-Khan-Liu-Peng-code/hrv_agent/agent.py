@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 from .data import load_ecg_record
 from .tools import preprocess_ecg, detect_rpeaks, validate_signal_quality
 from .metrics import compute_hrv_metrics

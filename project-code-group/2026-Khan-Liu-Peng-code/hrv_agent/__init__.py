@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import numpy as np
 
 # Shim for NumPy 2.0 compatibility

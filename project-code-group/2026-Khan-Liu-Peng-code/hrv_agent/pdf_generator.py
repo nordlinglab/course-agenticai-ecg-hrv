@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 """Professional PDF generator for HRV reports"""
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle

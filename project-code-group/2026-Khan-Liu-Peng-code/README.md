@@ -1,3 +1,4 @@
+**License:** CC-BY-4.0  
 # 🫀 HRV Coach Pro v2.1
 
 An autonomous agentic AI system that processes ECG signals and produces clinician-grade Heart Rate Variability (HRV) reports with one click.

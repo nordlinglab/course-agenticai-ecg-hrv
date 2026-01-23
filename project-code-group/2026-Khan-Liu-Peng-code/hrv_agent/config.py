@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import os
 from dotenv import load_dotenv
 

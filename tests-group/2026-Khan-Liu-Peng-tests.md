@@ -2,7 +2,7 @@
 
 **Group:** 2026-Khan-Liu-Peng 
 **Year:** 2026  
-
+**License:** CC-BY-4.0  
 ---
 
 ## 1. How to Run Tests

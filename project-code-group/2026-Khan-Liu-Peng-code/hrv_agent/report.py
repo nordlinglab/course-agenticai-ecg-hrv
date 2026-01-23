@@ -1,3 +1,4 @@
+#License:Apache License 2.0
 import os
 
 def generate_markdown_report(result_summary, metrics, config, output_dir, run_id):
