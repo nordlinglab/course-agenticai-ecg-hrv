@@ -1,6 +1,6 @@
 # Group Reflection — HRV Coach Pro v2.1
 
-**Group:** [Admin / Team Name]  
+**Group:** 2026-Khan-Liu-Peng
 **Year:** 2026  
 **License:** CC-BY-4.0  
 ---
