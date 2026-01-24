@@ -95,6 +95,9 @@ report:
   include_ai_interpretation: true
   output_format: pdf
 
+output:
+  dir: reports
+
 logging:
   level: INFO
   file: null
