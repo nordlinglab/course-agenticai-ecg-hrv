@@ -1,0 +1,30 @@
+{
+    "dataset_name": "Exercise ECG (Bike Experiment) Processed Dataset",
+    "version": "1.0",
+    "created": "2026-01-19",
+    "authors": [
+        "Cheng-Yu Fan",
+        "Po-Lin Lee",
+        "Wu-Jun Liu"
+    ],
+    "description": "Continuous ECG recordings collected during bicycle exercise experiments (Level 3 & Level 5), processed using Pan-Tompkins algorithm.",
+    "source": "Self-collected / Laboratory Data",
+    "license": "CC-BY-4.0",
+    "sampling_rate_hz": 125,
+    "features": [
+        "Time_Seconds",
+        "ECG_Raw",
+        "ECG_Filtered",
+        "R_Peak_Marker"
+    ],
+    "processing": {
+        "filtering": "Bandpass 0.5-40Hz (NeuroKit2)",
+        "r_peak_detection": "Pan-Tompkins",
+        "input_format": "Continuous Time-Series (Batch Processed)"
+    },
+    "conditions": [
+        "Level 3",
+        "Level 5"
+    ],
+    "privacy": "No PII included"
+}
