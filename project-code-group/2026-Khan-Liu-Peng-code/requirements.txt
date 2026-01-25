@@ -1,0 +1,12 @@
+numpy
+scipy
+pandas
+matplotlib
+wfdb
+neurokit2
+streamlit
+pytest
+python-dotenv
+plotly
+openai
+reportlab
