@@ -5,9 +5,9 @@ This folder contains individual technical reports detailing the AI agent solutio
 ## Requirements
 
 ### File Format
-- **Format:** Markdown (`.md`)
-- **Naming:** `YYYY-FamilyName-FirstName.md` (ASCII characters only)
-- **License:** Include license declaration (CC-BY-4.0 recommended)
+- **Format:** Markdown (`.md`) with Figures (`.pdf`,`.png`, or `.jpg`).
+- **Naming:** `YYYY-FamilyName-FirstName.md` (ASCII characters only). If you have less than three figures, then include them named `YYYY-FamilyName-FirstName-FigureX.pdf`, otherwise include all your figures in a folder named `YYYY-FamilyName-FirstName-Figures`.
+- **License:** Include license declaration (CC-BY-4.0 recommended).
 
 ### Content Requirements
 
@@ -746,7 +746,8 @@ Future work directions:
 Before submitting, verify:
 
 - [ ] File named correctly: `YYYY-FamilyName-FirstName.md`
-- [ ] Only ASCII characters in filename
+- [ ] All figures included and named correctly
+- [ ] Only ASCII characters in filename(s)
 - [ ] License declaration included
 - [ ] All required sections present
 - [ ] Technical content is accurate

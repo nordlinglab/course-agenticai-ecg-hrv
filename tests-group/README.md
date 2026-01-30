@@ -21,12 +21,12 @@ Your test submission must include:
 | **Test Summary** | Summary of results from all tests |
 | **Usage**| How to run tests |
 | **Known Issues** | When will a test not pass |
-| **Test Cases** | Test case documentation (see table below) |
-| **Test Results Analysis** | Analysis of the results |
+| **Test Cases** | Unit tests, integration tests, and end-to-end tests with documentation (see table below) |
+| **Analysis of the Test Results** | Analysis of the results |
 
 #### Test Case Documentation
 
-Each test case should specify:
+Three types of tests must be covered--unit tests, integration tests, and end-to-end tests. Each test case should specify:
 
 | Field | Description |
 |-------|-------------|
@@ -37,9 +37,9 @@ Each test case should specify:
 | **Expected Output** | What should happen |
 | **Actual Output** | What actually happened |
 | **Status** | PASS / FAIL / PARTIAL |
-| **Notes** | Additional observations |
+| **Notes (optional)** | Additional observations |
 
-#### Analysis of the Results
+#### Analysis of the Test Results
 
 | Field | Description |
 |-------|-------------|
@@ -58,10 +58,8 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 
 ## Example Test Documentation
 
-### README.md
-
 ```markdown
-# Test Suite: HRV Analysis for Stress Detection Agent
+# Test Suite: HRV Analysis for Stress Detection
 
 **Group:** 2026-Chen-Lin-Wang
 **Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
@@ -167,7 +165,7 @@ python -m pytest tests/test_tools.py
 - **Expected Output:** PDF report with HRV metrics and classification
 - **Actual Output:** PDF generated with all expected sections
 - **Status:** PASS
-- **Execution Time:** 28 seconds
+- **Notes:** Execution Time 28 seconds
 
 ### End-to-End Tests
 
@@ -181,7 +179,7 @@ python -m pytest tests/test_tools.py
 - **Status:** FAIL
 - **Notes:** Memory usage exceeded available RAM; needs optimization
 
-## Test Results Analysis
+## Analysis of the Test Results
 
 ### Result Summary
 
@@ -221,7 +219,7 @@ on machines with 8 GB RAM.
 
 ### Conclusion
 
-The system passes core functionality tests. Two failures identified are
+The system passes core functionality tests. The two identified failures are
 edge cases that do not affect normal operation but should be addressed
 in future iterations.
 ```
@@ -254,12 +252,11 @@ in future iterations.
 
 Before submitting, verify:
 
-- [ ] Folder named correctly: `YYYY-Name1-Name2-Name3/` (alphabetical)
-- [ ] Only ASCII characters in folder and file names
-- [ ] `README.md` present with overview and summary
-- [ ] `test_cases.md` with detailed test descriptions
-- [ ] `test_results.md` with outcomes and analysis
+- [ ] File named correctly: `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (alphabetical)
+- [ ] Only ASCII characters in filename
 - [ ] License declaration included
+- [ ] All required sections present
+- [ ] Folder containing test code and cases included in `project-code-group` submission
 - [ ] No personally identifiable information (PII) in test data
 - [ ] Test data is anonymized or synthetic
 - [ ] All group members listed

@@ -100,7 +100,7 @@ Deliverable scored as passed (1) if handed in with acceptable quality before the
 
 ### Source
 
-This dataset contains preprocessed HRV features and labells extracted from the SWELL-KW dataset. This is only a preprocessed part of the orginal data.
+This dataset contains preprocessed HRV features and labels extracted from the SWELL-KW dataset. This contains only a preprocessed sub set of the orginal data set.
 
 **Original Source:** W. Kraaij, S. Koldijk, & M. Sappelli. (2014). The SWELL Knowledge Work Dataset for Stress and User Modeling Research.
 Available at: http://cs.ru.nl/~skoldijk/SWELL-KW/Dataset.html

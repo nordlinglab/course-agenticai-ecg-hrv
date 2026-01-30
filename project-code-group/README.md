@@ -5,10 +5,9 @@ This folder contains group project source code for AI agent systems.
 ## Requirements
 
 ### Folder Format
-- **Format:** Folder containing source code and documentation
-- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` (alphabetical order, ASCII only)
-- **Required:** `README.md` with setup and usage instructions
-- **License:** Apache-2.0 for code (required)
+- **Format:** Folder containing source code and documentation.
+- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` (alphabetical order, ASCII only).
+- **License:** Apache-2.0 for code (required).
 
 ### Folder Structure
 
@@ -18,7 +17,7 @@ Example of what your folder may look like.
 2026-Chen-Lin-Wang/
 ├── README.md              # Project documentation (required)
 ├── requirements.txt       # Python dependencies (required)
-├── setup.py              # Package setup
+├── LICENSE.txt            # License (required)
 ├── src/                  # Source code
 │   ├── __init__.py
 │   ├── orchestrator.py   # Agent orchestrator
@@ -50,6 +49,7 @@ Your code submission must include:
 |------|-------------|
 | `README.md` | Setup instructions, usage examples, architecture overview |
 | `requirements.txt` | All Python dependencies with versions |
+| `LICENSE.txt` | License of the software |
 | Source code | Well-organized, documented code |
 | Configuration | Any config files needed to run the system |
 
@@ -338,6 +338,11 @@ python-dotenv>=1.0.0
 pyyaml>=6.0
 ```
 
+### LICENSE.txt
+
+License file filled out after downloading from
+[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
 ### .env.example
 
 ```
@@ -379,6 +384,11 @@ report:
   include_plots: true
   language: en
 ```
+
+### Code
+
+Source code in `src/` and `scripts/`
+
 ```
 
 ---
@@ -428,7 +438,9 @@ Before submitting, verify:
 - [ ] Only ASCII characters in folder and file names
 - [ ] `README.md` present with setup and usage instructions
 - [ ] `requirements.txt` with all dependencies
-- [ ] License declaration (Apache-2.0) included
+- [ ] `LICENSE.txt` file included
+- [ ] License declaration included
+- [ ] All required sections present in `README.md`
 - [ ] No API keys or secrets in code
 - [ ] `.env.example` provided (without actual keys)
 - [ ] Code runs without errors (tested)

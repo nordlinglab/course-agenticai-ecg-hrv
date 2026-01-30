@@ -266,7 +266,8 @@ Before submitting, verify:
 - [ ] All major components represented
 - [ ] Connections and data flow clearly shown
 - [ ] Labels are readable
-- [ ] Fits on approximately 1 A4 page
+- [ ] Exported PDF included.
+- [ ] Fits on one A4 page (exported PDF)
 - [ ] No personally identifiable information (PII)
 - [ ] All group members listed
 - [ ] Verified to follow UML 2.5.1 by LLM

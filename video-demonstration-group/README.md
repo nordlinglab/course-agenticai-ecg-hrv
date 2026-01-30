@@ -6,7 +6,7 @@ This folder contains group video demonstrations for the final project presentati
 
 ### Video Specifications
 
-- **Duration:** 10-12 minutes (strict limit)
+- **Duration:** 10-12 minutes (max 12.5 minutes)
 - **Resolution:** 1080p (1920x1080) minimum, 4K (3840x2160) recommended
 - **Frame rate:** 30 fps minimum, 60 fps for screen recordings with motion
 - **Audio:** Clear voice narration, consistent volume levels throughout
@@ -38,7 +38,7 @@ Your video demonstration should cover:
 | Challenges & Lessons Learned | 1-2 minutes |
 | Conclusion | 30 seconds - 1 minute |
 
-**Total:** 10-12 minutes
+**Total:** 10-12 minutes (max 12.5 minutes)
 
 ### What Makes a Good Demo Video
 
@@ -1165,7 +1165,7 @@ https://www.youtube.com/watch?v=dQw4w9WgXcQ
 
 Before submitting, verify:
 
-- [ ] Video is 10-12 minutes long
+- [ ] Video is max 12.5 minutes
 - [ ] Video resolution is 1080p or higher
 - [ ] Audio is clear and audible throughout
 - [ ] Audio levels are consistent (no sudden volume changes)

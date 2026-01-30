@@ -8,7 +8,7 @@ This folder contains group reflection documents comparing AI agent performance t
 - **Format:** Markdown (`.md`)
 - **Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (alphabetical order, ASCII only)
 - **License:** Include license declaration (CC-BY-4.0 recommended)
-- **Length:** Maximum 1 A4 page equivalent (~500 words)
+- **Length:** Maximum 1 A4 page equivalent (~500 words, max 750 words)
 
 ### Content Requirements
 
@@ -16,7 +16,7 @@ The reflection document analyzes your group's experience comparing:
 - **AI Agent approach** (your project implementation)
 - **Pure Chat-based approach** (e.g., ChatGPT, Claude without agent features)
 
-Your reflection must address:
+Your reflection must include:
 
 | Section | Description |
 |---------|-------------|
@@ -133,10 +133,10 @@ The performance difference occurs because:
 
 Before submitting, verify:
 
-- [ ] File named correctly: `YYYY-Name1-Name2-Name3.md` (alphabetical)
+- [ ] File named correctly: `YYYY-FamilyName1-FamilyName2-FamilyName3.md` (alphabetical)
 - [ ] Only ASCII characters in filename
 - [ ] License declaration included
 - [ ] All required sections present
-- [ ] Maximum 1 A4 page (~500 words)
+- [ ] Maximum 1 A4 page (max 750 words)
 - [ ] No personally identifiable information (PII)
 - [ ] All group members contributed and are listed

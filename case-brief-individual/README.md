@@ -34,7 +34,7 @@ Your case brief must include:
 | **References** | Sources cited (if any) |
 
 ### Length
-- Approximately 1-2 pages (500-1000 words)
+- Approximately 1-2 pages (500-1000 words, max 1250 words)
 - Quality over quantity
 
 ---
@@ -175,4 +175,5 @@ Before submitting, verify:
 - [ ] License declaration included
 - [ ] All required sections present
 - [ ] No personally identifiable information (PII)
+- [ ] Length at most 1250 words
 - [ ] Proofread for clarity and grammar by an LLM

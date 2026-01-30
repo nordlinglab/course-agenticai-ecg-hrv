@@ -6,11 +6,11 @@ This folder contains group presentation slides for the final demonstration.
 
 ### File Format
 
-- **Format:** LaTeX Beamer (`.tex`) with Figures (`.pdf`,`.png`, or `.jpg`)
-- **Template:** NordlingLab Beamer 16:9 template (required)
-- **Compiler:** XeLaTeX (required for the template)
+- **Format:** LaTeX Beamer (`.tex`) with Figures (`.pdf`,`.png`, or `.jpg`).
+- **Template:** NordlingLab Beamer 16:9 template (required).
+- **Compiler:** LuaLaTeX or XeLaTeX (required for the template).
 - **Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3.tex` (alphabetical order, ASCII only). If you have less than three figures, then include them named `YYYY-FamilyName1-FamilyName2-FamilyName3-FigureX.pdf`, otherwise include all your figures in a folder named `YYYY-FamilyName1-FamilyName2-FamilyName3-Figures`.
-- **License:** Include license declaration in the document (CC-BY-4.0 recommended)
+- **License:** Include license declaration in the document (CC-BY-4.0 recommended).
 
 ### Why Beamer/LaTeX?
 
@@ -35,7 +35,7 @@ Your presentation should cover:
 | Challenges & Lessons Learned | 1-2 |
 | Conclusion & Q&A | 1 |
 
-**Total:** Approximately 8-12 slides
+**Total:** Approximately 8-12 slides (max 15)
 
 ---
 
@@ -452,7 +452,8 @@ Place images in the same directory and reference them:
 Before submitting, verify:
 
 - [ ] File named correctly: `YYYY-Name1-Name2-Name3.tex` (alphabetical)
-- [ ] Only ASCII characters in filename
+- [ ] All figures included and named correctly
+- [ ] Only ASCII characters in filename(s)
 - [ ] License declaration included in document (SPDX header)
 - [ ] Uses NordlingLab169 theme with 16:9 aspect ratio
 - [ ] Uses correct background/footline templates (NLTitle, NLCC, NL)
@@ -461,4 +462,5 @@ Before submitting, verify:
 - [ ] Compiles without errors using LuaLaTeX or XeLaTeX
 - [ ] PDF renders correctly
 - [ ] No personally identifiable information (PII)
+- [ ] At most 15 slides
 - [ ] All group members listed as authors
