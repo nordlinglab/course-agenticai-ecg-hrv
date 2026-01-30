@@ -1,5 +1,7 @@
 # Case Brief: Automated Workplace Stress Monitoring Using an HRV-based Stress Classifier using ECG Input Data
 
+**Group:** 2026-Chen-Lin-Wang
+
 **Authors:** Chen Wei, Lin MeiLing, Wang XiaoMing
 
 **License:** CC-BY-4.0

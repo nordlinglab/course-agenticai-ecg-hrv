@@ -8,6 +8,7 @@ This folder contains group system design diagrams following UML standards.
 - **Format:** draw.io XML (`.drawio`) and exported PDF (`.pdf`)
 - **Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3.drawio` (alphabetical order, ASCII only)
 - **Standard:** UML (Unified Modeling Language)
+- **Authors:** Include author names in diagram metadata or as text element
 - **License:** Include license in diagram metadata or as text element (CC-BY-4.0 recommended)
 - **Length:** Maximum 1 A4 page equivalent when exported
 

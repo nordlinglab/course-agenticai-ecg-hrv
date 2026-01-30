@@ -26,6 +26,7 @@ Your case brief must include:
 | Section | Description |
 |---------|-------------|
 | **Title** | Clear, descriptive title of the case |
+| **Author(s)** | Name of the author(s) |
 | **Problem Statement/Definition** | What problem are you addressing? Why does it matter? |
 | **Context/Background** | Industry context, stakeholders, current solutions, cost |
 | **Analysis** | Root cause analysis, constraints, requirements |
@@ -57,8 +58,7 @@ Scoring is relative to the example brief provided by the instructor.
 ```markdown
 # Case Brief: Automated Patient Triage in Emergency Departments
 
-**Author:** 2026-Example-Student
-
+**Author:** Chen Wei
 **License:** CC-BY-4.0
 
 ## Problem Statement

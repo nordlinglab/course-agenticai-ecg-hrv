@@ -17,7 +17,9 @@ Your report must include:
 
 | Section | Description |
 |---------|-------------|
-| **Title & Author** | Project title, your name, group members |
+| **Title** | Project title |
+| **Author** | Your name |
+| **Group Members** | Group members |
 | **Abstract** | Brief summary (100-150 words) |
 | **Introduction** | Problem context and objectives |
 | **System Architecture** | Overall design of your AI agent system |
@@ -48,7 +50,7 @@ The technical report contributes to your individual assessment. It is evaluated 
 ```markdown
 # Technical Report: HRV-Based Fatigue Detection Agent
 
-**Author:** 2026-Chen-Wei
+**Author:** Chen Wei
 **Group Members:** Chen Wei, Lin MeiLing, Wang XiaoMing
 **License:** CC-BY-4.0
 

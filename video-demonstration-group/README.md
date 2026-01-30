@@ -30,7 +30,7 @@ Your video demonstration should cover:
 
 | Section | Suggested Duration |
 |---------|-------------------|
-| Title slide | 10 seconds |
+| Title slide with author names | 10 seconds |
 | Problem (What?) & Motivation (Why?) | 1-2 minutes |
 | System Architecture | 2-3 minutes |
 | Live Demo / Working System | 3-4 minutes |

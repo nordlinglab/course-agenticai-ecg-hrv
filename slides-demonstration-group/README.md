@@ -28,7 +28,7 @@ Your presentation should cover:
 
 | Section | Suggested Slides |
 |---------|------------------|
-| Title slide | 1 |
+| Title slide with author names | 1 |
 | Problem (What?) & Motivation (Why?) | 1-2 |
 | System Architecture | 2-3 |
 | Demo / Results & Evaluation | 2-3 |
@@ -458,6 +458,7 @@ Before submitting, verify:
 - [ ] Uses NordlingLab169 theme with 16:9 aspect ratio
 - [ ] Uses correct background/footline templates (NLTitle, NLCC, NL)
 - [ ] All images included with correct names
+- [ ] Title slide has title and all author names spelled correctly
 - [ ] None of the Nordling Lab Beamer template files are included
 - [ ] Compiles without errors using LuaLaTeX or XeLaTeX
 - [ ] PDF renders correctly
