@@ -2724,6 +2724,46 @@ initialize_individual_csv() {
 # Format: results[row_key,column_name] = value
 declare -A CSV_DATA
 
+# Store previous CSV data for score comparison (loaded at start, before new evaluation)
+# Used to warn when scores are lowered compared to previous run
+declare -A PREVIOUS_CSV_DATA
+
+# Store student to group membership mapping
+# Format: STUDENT_GROUP_MEMBERSHIP[normalized_family_name] = "Group Members String"
+declare -A STUDENT_GROUP_MEMBERSHIP
+
+# Register all members of a group for later lookup
+# group_members_str: space-separated family names (e.g., "Chen Liu Wang")
+register_group_membership() {
+    local group_members_str="$1"
+    local -a members
+    members=(${(s: :)group_members_str})
+
+    for member in "${members[@]}"; do
+        # Skip if it's a known tag
+        if is_known_tag "$member"; then
+            continue
+        fi
+        # Normalize to lowercase for consistent lookup
+        local normalized=$(echo "$member" | tr '[:upper:]' '[:lower:]')
+        STUDENT_GROUP_MEMBERSHIP[$normalized]="$group_members_str"
+    done
+}
+
+# Check if a student (by family name) is a member of a specific group
+# Returns 0 if member, 1 if not
+is_group_member() {
+    local student_family="$1"
+    local group_members_str="$2"
+
+    local normalized=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
+    local stored_group="${STUDENT_GROUP_MEMBERSHIP[$normalized]:-}"
+
+    # Check if the student's stored group matches the given group
+    [[ "$stored_group" == "$group_members_str" ]] && return 0
+    return 1
+}
+
 load_csv() {
     local csvfile="$1"
     local header line_num line row_key i
@@ -2739,7 +2779,7 @@ load_csv() {
     # Read data rows
     line_num=0
     while IFS= read -r line; do
-        ((line_num++))
+        line_num=$((line_num + 1))
         [[ $line_num -eq 1 ]] && continue  # Skip header
 
         # Use zsh array splitting
@@ -2755,8 +2795,40 @@ load_csv() {
     return 0
 }
 
+# Load previous CSV into PREVIOUS_CSV_DATA for score comparison
+# This is called at script start to compare new scores against old ones
+load_previous_csv() {
+    local csvfile="$1"
+    local header line_num line row_key i
+    local -a values columns
+
+    [[ ! -f "$csvfile" ]] && return 1
+
+    # Read header
+    IFS= read -r header < "$csvfile"
+    columns=(${(s:,:)header})
+
+    # Read data rows
+    line_num=0
+    while IFS= read -r line; do
+        line_num=$((line_num + 1))
+        [[ $line_num -eq 1 ]] && continue  # Skip header
+
+        values=(${(s:,:)line})
+        row_key="${values[1]}"
+        # Convert spaces to underscores for consistent key format
+        local storage_key="${row_key// /_}"
+
+        for i in {1..${#columns[@]}}; do
+            PREVIOUS_CSV_DATA[$storage_key,${columns[$i]}]=${values[$i]:-}
+        done
+    done < "$csvfile"
+
+    return 0
+}
+
 # Update or add a value in CSV data
-# Warns if new value is lower than existing
+# Warns if new value is lower than what was in the PREVIOUS CSV file (from before this run)
 # Note: row_key should use underscores instead of spaces for storage
 update_csv_value() {
     local row_key="$1"
@@ -2766,11 +2838,12 @@ update_csv_value() {
     # Convert spaces to underscores in key for storage
     local storage_key="${row_key// /_}"
 
-    local existing="${CSV_DATA[$storage_key,$column]:-}"
+    # Compare against PREVIOUS CSV data (from file before this run), not current run's data
+    local previous="${PREVIOUS_CSV_DATA[$storage_key,$column]:-}"
 
-    if [[ -n "$existing" && "$existing" =~ ^[0-9]+$ && "$new_value" =~ ^[0-9]+$ ]]; then
-        if [[ "$new_value" -lt "$existing" ]]; then
-            echo "WARNING: Score lowered for '$row_key' in '$column': $existing -> $new_value"
+    if [[ -n "$previous" && "$previous" =~ ^[0-9]+$ && "$new_value" =~ ^[0-9]+$ ]]; then
+        if [[ "$new_value" -lt "$previous" ]]; then
+            echo -e "${YELLOW}WARNING: Score lowered for '$row_key' in '$column': $previous -> $new_value${NC}"
         fi
     fi
 
@@ -2852,8 +2925,17 @@ evaluate_group_submissions() {
     echo "Evaluating group submissions for year $year..."
     echo ""
 
+    # Load previous CSV for score comparison (before clearing current data)
+    PREVIOUS_CSV_DATA=()
+    if [[ -f "$csvfile" ]]; then
+        load_previous_csv "$csvfile"
+    fi
+
     # Clear any existing CSV data (start fresh each run)
     CSV_DATA=()
+
+    # Clear group membership data
+    STUDENT_GROUP_MEMBERSHIP=()
 
     # Build header
     local header="Group Members"
@@ -2920,6 +3002,9 @@ evaluate_group_submissions() {
 
             # Convert group key to display format (space-separated)
             display_key=$(echo "$group_key" | tr '-' ' ')
+
+            # Register all group members for later lookup (when copying scores to individuals)
+            register_group_membership "$display_key"
 
             # Store with underscores in found_groups to avoid quoting issues
             # Note: Do NOT use quotes around $storage_key_for_group - zsh stores literal quotes
@@ -3002,8 +3087,24 @@ evaluate_individual_submissions() {
     echo "Evaluating individual submissions for year $year..."
     echo ""
 
+    # Load previous CSV for score comparison (before clearing current data)
+    PREVIOUS_CSV_DATA=()
+    if [[ -f "$csvfile" ]]; then
+        load_previous_csv "$csvfile"
+    fi
+
     # Clear any existing CSV data (start fresh each run)
     CSV_DATA=()
+
+    # If STUDENT_GROUP_MEMBERSHIP is empty (e.g., running -i only), load from group CSV
+    if [[ ${#STUDENT_GROUP_MEMBERSHIP[@]} -eq 0 && -f "$group_csvfile" ]]; then
+        echo "Loading group membership from $group_csvfile..."
+        while IFS=',' read -r group_members rest; do
+            [[ "$group_members" == "Group Members" ]] && continue
+            register_group_membership "$group_members"
+        done < "$group_csvfile"
+        echo ""
+    fi
 
     # Build header - add Inconsistent_name column after Student Name
     local header="Student Name,Inconsistent_name"
@@ -3106,19 +3207,17 @@ evaluate_individual_submissions() {
     done
 
     # Load group CSV to copy group scores
+    # Copy group scores to individual students based on actual group membership
+    # Uses STUDENT_GROUP_MEMBERSHIP which was populated during group evaluation
     if [[ -f "$group_csvfile" ]]; then
-        echo "Copying group scores from $group_csvfile..."
+        echo "Copying group scores to individual students..."
         echo ""
 
-        # Build mapping from student family names to group scores
         while IFS=',' read -r group_members rest; do
             [[ "$group_members" == "Group Members" ]] && continue
 
             # Use zsh array splitting
             values=(${(s:,:):-${group_members},${rest}})
-
-            # Normalize the group members string for comparison
-            local group_normalized=$(normalize_student_key "$group_members")
 
             # Parse the CSV line properly
             idx=0
@@ -3130,14 +3229,13 @@ evaluate_individual_submissions() {
                 notes_idx=$((idx + 1 + ${#GROUP_SUBMISSIONS[@]}))
                 notes="${values[$notes_idx]:-}"
 
-                # Assign to each student whose normalized family name matches part of the group
+                # Assign only to students who are actual members of this group
                 for norm_key in ${(k)found_students}; do
                     canonical_name="${student_canonical_name[$norm_key]}"
                     student_family="${canonical_name%% *}"
-                    local student_family_norm=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
 
-                    # Check if student's family name (normalized) is in the group members (normalized)
-                    if [[ "$group_normalized" == *"$student_family_norm"* ]]; then
+                    # Use is_group_member to check actual membership
+                    if is_group_member "$student_family" "$group_members"; then
                         update_csv_value "$canonical_name" "$sub" "$score"
                         update_csv_value "$canonical_name" "${sub}_notes" "$notes"
                         student_groups[$canonical_name]=$group_members
