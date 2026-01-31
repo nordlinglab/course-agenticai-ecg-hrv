@@ -32,6 +32,12 @@ INDIVIDUAL_ONLY=false
 SPECIFIC_SUBMISSION=""
 SHOW_CRITERIA=false
 SHOW_LOGIC=false
+VERBOSE=false
+COOKIES_FROM_BROWSER=""
+
+# Video metadata cache settings
+VIDEO_CACHE_DIR="${SCRIPT_DIR}/.video_cache"
+VIDEO_CACHE_MAX_AGE_DAYS=30
 
 # Submission types
 INDIVIDUAL_SUBMISSIONS=("ssh-key" "case-brief" "report")
@@ -83,6 +89,10 @@ show_help() {
     echo "    -s, --submission TYPE Check only specific submission type"
     echo "    -c, --criteria [TYPE] Show requirements for all or specific submission"
     echo "    -l, --logic [TYPE]    Show scoring algorithm for all or specific submission"
+    echo "    -v, --verbose         Show detailed check-by-check output for each file"
+    echo "    --cookies-from-browser BROWSER"
+    echo "                          Use cookies from browser for yt-dlp (e.g., firefox, chrome)"
+    echo "                          Speeds up YouTube checks significantly"
     echo "    -h, --help            Show this help message"
     echo ""
     echo "SUBMISSION TYPES:"
@@ -269,19 +279,461 @@ is_ascii() {
     [[ "$str" =~ ^[[:print:]]+$ ]] && ! [[ "$str" =~ [^[:ascii:]] ]]
 }
 
+# ============================================================================
+# NAME EXTRACTION AND VALIDATION
+# ============================================================================
+#
+# FILENAME FORMAT RULES:
+# - Individual: YYYY-FamilyName-FirstName.ext (exactly 2 name parts)
+# - Group: YYYY-FamilyName1-FamilyName2-FamilyName3.ext (2-4 family names)
+#
+# VALIDATION RULES:
+# 1. Names must start with uppercase letter
+# 2. Names must contain only ASCII letters
+# 3. Group names must be in alphabetical order
+# 4. Filenames must NOT include submission type suffixes (tests, reflection, etc.)
+#
+# Known submission type suffixes to filter out (case-insensitive):
+KNOWN_SUFFIXES=("data" "code" "tests" "reflection" "video" "slides" "Figures" "figure" "Figure" "report")
+
+# Remove known submission type suffixes from a name string
+# This prevents "Khan-Liu-Peng-tests" from being parsed as 4 names
+strip_submission_suffixes() {
+    local name="$1"
+    local suffix
+    for suffix in "${KNOWN_SUFFIXES[@]}"; do
+        # Remove suffix with dash prefix (case insensitive)
+        name="${name%-${suffix}}"
+        name="${name%-${(L)suffix}}"  # lowercase version
+        name="${name%-${(C)suffix}}"  # capitalized version
+    done
+    echo "$name"
+}
+
+# Check if a string looks like a valid name (capitalized, ASCII only)
+is_valid_name() {
+    local name="$1"
+    # Must start with uppercase, followed by lowercase letters only
+    [[ "$name" =~ ^[A-Z][a-z]+$ ]]
+}
+
+# Check if names are in alphabetical order
+are_names_alphabetical() {
+    local names="$1"  # Space-separated names
+    local -a name_array
+    name_array=(${(s: :)names})
+
+    local i prev_name curr_name
+    prev_name=""
+    for curr_name in "${name_array[@]}"; do
+        if [[ -n "$prev_name" ]]; then
+            # Compare case-insensitively
+            if [[ "${(L)curr_name}" < "${(L)prev_name}" ]]; then
+                return 1
+            fi
+        fi
+        prev_name="$curr_name"
+    done
+    return 0
+}
+
 # Extract family names from filename
 # Format: YYYY-FamilyName1-FamilyName2-FamilyName3.ext -> FamilyName1 FamilyName2 FamilyName3
+# Returns: space-separated family names (cleaned of submission type suffixes)
 extract_family_names() {
     local filename="$1"
     local basename="${filename%.*}"  # Remove extension
-    # Remove year prefix
+
+    # Remove year prefix (YYYY-)
     local names="${basename#*-}"
+
+    # Strip known submission type suffixes
+    names=$(strip_submission_suffixes "$names")
+
     # For individual files (YYYY-FamilyName-FirstName), take only family name
     if [[ "$names" =~ ^([A-Za-z]+)-([A-Za-z]+)$ ]]; then
         echo "${BASH_REMATCH[1]}"
     else
         # For group files, extract all family names (alphabetical list)
+        # Convert dashes to spaces
         echo "$names" | tr '-' ' '
+    fi
+}
+
+# Extract potential family names from a full name string
+# Handles formats:
+#   - "2026-Chen-KunYu" → "Chen KunYu" (strip year, both parts are candidates)
+#   - "Wei JungYing" → "Wei JungYing" (both are candidates)
+#   - "Liu TzuEn Andrew" → "Liu Andrew" (first and last)
+# Returns: space-separated potential family names (first and last parts)
+extract_potential_family_names() {
+    local full_name="$1"
+
+    # Handle YYYY-Name-Name format
+    if [[ "$full_name" =~ ^[0-9]{2,4}[-_] ]]; then
+        # Strip year prefix (YYYY- or YY-)
+        full_name="${full_name#*-}"
+        # Strip submission suffixes
+        full_name=$(strip_submission_suffixes "$full_name")
+        # Convert dashes to spaces
+        full_name="${full_name//-/ }"
+    fi
+
+    local -a words
+    # Split on whitespace
+    words=(${(s: :)full_name})
+    local count=${#words[@]}
+
+    if [[ $count -eq 0 ]]; then
+        echo ""
+    elif [[ $count -eq 1 ]]; then
+        echo "${words[1]}"
+    elif [[ $count -eq 2 ]]; then
+        # Both could be family name
+        echo "${words[1]} ${words[2]}"
+    else
+        # First and last are potential family names
+        echo "${words[1]} ${words[$count]}"
+    fi
+}
+
+# Parse author line to extract individual author names
+# Handles formats:
+#   - "2026-Fan-Cheng-Yu" → "Fan Cheng Yu"
+#   - "Fan ChengYu, Lee PoLin" → ["Fan ChengYu", "Lee PoLin"]
+#   - "Chen, Lin, Wang" → ["Chen", "Lin", "Wang"]
+#   - "Wei JungYing, Wu KunChe" → ["Wei JungYing", "Wu KunChe"]
+# Returns: newline-separated list of author names
+parse_author_names() {
+    local author_line="$1"
+
+    # Remove markdown formatting
+    author_line=$(echo "$author_line" | sed 's/\*//g' | sed 's/#//g')
+
+    # Check if it's a YYYY-Name-Name format
+    if [[ "$author_line" =~ ^[0-9]{4}-[A-Za-z] ]]; then
+        # Strip year prefix and convert dashes to spaces
+        local names="${author_line#*-}"
+        names=$(strip_submission_suffixes "$names")
+        echo "$names" | tr '-' ' '
+        return
+    fi
+
+    # Split by comma to get individual authors
+    local -a authors_raw
+    # Use parameter expansion to split on comma
+    authors_raw=(${(s:,:)author_line})
+
+    local author
+    for author in "${authors_raw[@]}"; do
+        # Trim whitespace
+        author=$(echo "$author" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -n "$author" ]] && echo "$author"
+    done
+}
+
+# Extract author names from file content
+# Looks for common patterns within first 15 lines:
+#   - "Author:", "Authors:"
+#   - "Group:", "Group members:"
+#   - "Team:", "Team members:"
+# Returns: newline-separated list of author full names found in content
+extract_authors_from_content() {
+    local filepath="$1"
+    local content_file="$filepath"
+
+    # For folders (data, project-code), look in README.md
+    if [[ -d "$filepath" ]]; then
+        content_file="$filepath/README.md"
+    fi
+
+    if [[ ! -f "$content_file" ]]; then
+        echo ""
+        return
+    fi
+
+    # Read first 15 lines for author information
+    local first_lines
+    first_lines=$(head -15 "$content_file" 2>/dev/null || true)
+
+    # Try multiple patterns to find authors
+    # IMPORTANT: Patterns must require a colon to avoid matching titles like "Group Tests"
+    local author_line=""
+
+    # Pattern 1: "Author:" or "Authors:" (with optional ** markdown)
+    # Must have colon after the keyword
+    author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*authors?[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+
+    # Pattern 2: "Group:" or "Group members:" (must have colon)
+    if [[ -z "$author_line" ]]; then
+        author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*(group|group members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+    fi
+
+    # Pattern 3: "Team:" or "Team members:" (must have colon)
+    if [[ -z "$author_line" ]]; then
+        author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*(team|team members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+    fi
+
+    if [[ -z "$author_line" ]]; then
+        echo ""
+        return
+    fi
+
+    # Truncate to first 100 characters
+    author_line="${author_line:0:100}"
+
+    # Parse the author names
+    parse_author_names "$author_line"
+}
+
+# Normalize a name string to canonical form for comparison
+# Normalize student name for duplicate detection
+# Removes ALL separators and spaces, lowercases for comparison
+# "Fan Cheng-Yu" → "fanchengyu"
+# "Fan ChengYu" → "fanchengyu"
+# This allows detecting same student with different name spellings
+normalize_student_key() {
+    local name="$1"
+    # Remove year prefix if present
+    if [[ "$name" =~ ^[0-9]{2,4}[-_] ]]; then
+        name="${name#*[-_]}"
+    fi
+    # Strip known submission suffixes
+    name=$(strip_submission_suffixes "$name")
+    # Remove ALL separators (dashes, spaces, commas, etc.) and lowercase
+    name=$(echo "$name" | sed 's/[-_ ,;:]//g' | tr '[:upper:]' '[:lower:]')
+    echo "$name"
+}
+
+# Strips year prefix, converts separators to spaces, lowercases
+# "2026-Fan-Cheng-Yu" → "fan cheng yu"
+# "Fan ChengYu" → "fan chengyu"
+normalize_name_string() {
+    local name="$1"
+
+    # Remove markdown/special characters FIRST (before year stripping)
+    name=$(echo "$name" | sed 's/[*#`()"]//g')
+
+    # Strip year prefix (YYYY- or YY-)
+    if [[ "$name" =~ ^[0-9]{2,4}[-_] ]]; then
+        name="${name#*[-_]}"
+    fi
+
+    # Strip known submission suffixes
+    name=$(strip_submission_suffixes "$name")
+
+    # Convert common separators to spaces (use sed for clarity)
+    name=$(echo "$name" | sed 's/[-_,;:]/ /g')
+
+    # Collapse multiple spaces, trim, lowercase
+    name=$(echo "$name" | tr -s ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+
+    echo "$name"
+}
+
+# Extract all potential family names from content authors
+# Returns: space-separated list of all potential family names (lowercase for comparison)
+get_content_family_names() {
+    local filepath="$1"
+    local content_authors
+    local -a family_names
+    local -a author_lines
+    local author potential name
+
+    # Get all authors from content (newline-separated)
+    content_authors=$(extract_authors_from_content "$filepath")
+
+    if [[ -z "$content_authors" ]]; then
+        echo ""
+        return
+    fi
+
+    # For each author, extract potential family names
+    # Use zsh array splitting instead of here document
+    author_lines=(${(f)content_authors})
+
+    for author in "${author_lines[@]}"; do
+        [[ -z "$author" ]] && continue
+        potential=$(extract_potential_family_names "$author")
+        for name in ${(s: :)potential}; do
+            family_names+=("${(L)name}")  # lowercase for comparison
+        done
+    done
+
+    # Return unique family names
+    echo "${family_names[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '
+}
+
+# Compare filename names with content authors
+# Returns: "match", "mismatch", or "no_content"
+compare_filename_to_content() {
+    local filepath="$1"
+    local filename_names="$2"  # Space-separated names from filename
+
+    # Get content authors
+    local content_authors
+    content_authors=$(extract_authors_from_content "$filepath")
+
+    if [[ -z "$content_authors" ]]; then
+        echo "no_content"
+        return
+    fi
+
+    # Normalize filename names
+    local filename_normalized
+    filename_normalized=$(normalize_name_string "$filename_names")
+
+    # Check each content author line for a match
+    local -a author_lines
+    author_lines=(${(f)content_authors})
+
+    local author content_normalized
+    for author in "${author_lines[@]}"; do
+        [[ -z "$author" ]] && continue
+        content_normalized=$(normalize_name_string "$author")
+
+        # Direct match after normalization
+        if [[ "$filename_normalized" == "$content_normalized" ]]; then
+            echo "match"
+            return
+        fi
+    done
+
+    # If single content author that normalizes to match filename, it's a match
+    if [[ ${#author_lines[@]} -eq 1 ]]; then
+        # Already checked above, so no match
+        echo "mismatch"
+        return
+    fi
+
+    # For multiple authors, check if all filename names appear in combined content
+    # This handles group submissions where content has multiple author lines
+    local all_content_names=""
+    for author in "${author_lines[@]}"; do
+        [[ -z "$author" ]] && continue
+        all_content_names="$all_content_names $(normalize_name_string "$author")"
+    done
+
+    # Check if all filename name parts appear in content
+    local -a filename_parts
+    filename_parts=(${(s: :)filename_normalized})
+    local all_found=true
+    local part
+    for part in "${filename_parts[@]}"; do
+        if ! echo " $all_content_names " | grep -qi " $part "; then
+            all_found=false
+            break
+        fi
+    done
+
+    if $all_found; then
+        echo "match"
+    else
+        echo "mismatch"
+    fi
+}
+
+# Validate group name format and check for discrepancies
+# Outputs warnings to terminal if issues found
+validate_group_names() {
+    local filepath="$1"
+    local filename_names="$2"  # Space-separated names from filename
+    local submission_type="$3"
+
+    local -a name_array
+    name_array=(${(s: :)filename_names})
+    local name_count=${#name_array[@]}
+    local warnings=""
+
+    # Check 1: Validate each name looks like a proper name (capitalized)
+    local name
+    for name in "${name_array[@]}"; do
+        if ! is_valid_name "$name"; then
+            warnings="${warnings}    WARNING: '$name' doesn't look like a valid name (should be capitalized)\n"
+        fi
+    done
+
+    # Check 2: Verify names are in alphabetical order (heuristic - needs content verification)
+    local not_alphabetical=false
+    if ! are_names_alphabetical "$filename_names"; then
+        not_alphabetical=true
+    fi
+
+    # Check 3: Detect if this looks like an individual misplaced in group folder
+    # Individual format: FamilyName FirstName [MiddleName/EnglishName] (1 family + 1-2 given names)
+    # Group format: FamilyName1 FamilyName2 [FamilyName3] (2-4 family names, alphabetically sorted)
+    #
+    # Detection heuristics for individuals:
+    # - 2 names: second name has mixed case (TzuEn) or is short (≤4 chars)
+    # - 3 names: middle name has mixed case (indicates FirstName MiddleName pattern)
+    local looks_like_individual=false
+
+    if [[ $name_count -eq 2 ]]; then
+        local second_name="${name_array[2]}"
+        if [[ "$second_name" =~ [a-z][A-Z] ]] || [[ ${#second_name} -le 4 ]]; then
+            looks_like_individual=true
+        fi
+    elif [[ $name_count -eq 3 ]]; then
+        local second_name="${name_array[2]}"
+        if [[ "$second_name" =~ [a-z][A-Z] ]]; then
+            looks_like_individual=true
+        fi
+    fi
+
+    # Check 4: Compare filename names with content authors
+    local comparison_result
+    comparison_result=$(compare_filename_to_content "$filepath" "$filename_names")
+
+    local verified_by_content=false
+    local content_mismatch=false
+
+    case "$comparison_result" in
+        match)
+            verified_by_content=true
+            # Content confirms, clear individual suspicion for groups
+            local content_authors
+            content_authors=$(extract_authors_from_content "$filepath")
+            local content_author_count=0
+            local -a content_lines
+            content_lines=(${(f)content_authors})
+            for line in "${content_lines[@]}"; do
+                [[ -n "$line" ]] && content_author_count=$((content_author_count + 1))
+            done
+            if [[ $content_author_count -ge 2 ]]; then
+                looks_like_individual=false
+            fi
+            ;;
+        mismatch)
+            content_mismatch=true
+            ;;
+        no_content)
+            # No author info in content, rely on heuristics only
+            ;;
+    esac
+
+    # Output warnings based on verification results
+    if $content_mismatch; then
+        local content_authors_display
+        content_authors_display=$(extract_authors_from_content "$filepath" | tr '\n' ',' | sed 's/,$//')
+        warnings="${warnings}    WARNING: Filename names ($filename_names) don't match authors in content ($content_authors_display)\n"
+    fi
+
+    if $looks_like_individual; then
+        if $verified_by_content; then
+            # Content confirmed it's actually a group despite heuristics
+            : # No warning
+        else
+            warnings="${warnings}    WARNING: '$filename_names' appears to be an INDIVIDUAL name, not a group (misplaced in group folder?)\n"
+        fi
+    fi
+
+    if $not_alphabetical && ! $verified_by_content; then
+        warnings="${warnings}    WARNING: Names not in alphabetical order: $filename_names\n"
+    fi
+
+    # Output warnings if any
+    if [[ -n "$warnings" ]]; then
+        echo -e "$warnings"
     fi
 }
 
@@ -376,6 +828,220 @@ has_email_comment() {
     local filepath="$1"
     local content=$(cat "$filepath" 2>/dev/null)
     [[ "$content" =~ [[:space:]][^[:space:]]+@[^[:space:]]+$ ]]
+}
+
+# Run a command with timeout (default 5 seconds)
+# Returns the command output, or empty if timed out
+# Sets TIMEOUT_OCCURRED=1 if timeout happened
+# Temp directory for script artifacts (includes PID to avoid conflicts)
+EVAL_TMP_DIR="${TMPDIR:-/tmp}/evaluate_submissions_$$"
+TIMEOUT_STDERR_FILE="${EVAL_TMP_DIR}/cmd_stderr_eval"
+
+# Cleanup function - removes temp dir on successful exit
+cleanup_tmp() {
+    if [[ -d "$EVAL_TMP_DIR" ]]; then
+        rm -rf "$EVAL_TMP_DIR"
+    fi
+}
+
+# Sets TIMEOUT_OCCURRED=1 if command timed out
+# Writes stderr to $TIMEOUT_STDERR_FILE for reading after call
+run_with_timeout() {
+    local timeout_secs="${1:-5}"
+    shift
+    local cmd="$*"
+
+    mkdir -p "$EVAL_TMP_DIR" 2>/dev/null || true
+    : > "$TIMEOUT_STDERR_FILE" 2>/dev/null || true  # Clear the stderr file
+
+    local exit_code
+    local output
+
+    # Use timeout command if available (GNU coreutils), otherwise use perl
+    if command -v timeout &>/dev/null; then
+        output=$(timeout "$timeout_secs" sh -c "$cmd" 2>"$TIMEOUT_STDERR_FILE")
+        exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+            echo "TIMEOUT"
+            return 124
+        fi
+    elif command -v gtimeout &>/dev/null; then
+        # macOS with coreutils installed via brew
+        output=$(gtimeout "$timeout_secs" sh -c "$cmd" 2>"$TIMEOUT_STDERR_FILE")
+        exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+            echo "TIMEOUT"
+            return 124
+        fi
+    else
+        # Fallback: use perl for timeout on macOS
+        output=$(perl -e '
+            use strict;
+            use warnings;
+            $SIG{ALRM} = sub { exit 124 };
+            alarm(shift);
+            exec(@ARGV) or exit 1;
+        ' "$timeout_secs" sh -c "$cmd" 2>"$TIMEOUT_STDERR_FILE")
+        exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+            echo "TIMEOUT"
+            return 124
+        fi
+    fi
+
+    echo "$output"
+    return $exit_code
+}
+
+# Helper to get last command's stderr (call after run_with_timeout)
+get_last_stderr() {
+    cat "$TIMEOUT_STDERR_FILE" 2>/dev/null
+}
+
+# ============================================================================
+# VIDEO METADATA CACHE
+# ============================================================================
+
+# Extract YouTube video ID from URL
+get_youtube_video_id() {
+    local url="$1"
+    # Handle youtu.be/ID and youtube.com/watch?v=ID formats
+    if echo "$url" | grep -qE "youtu\.be/"; then
+        echo "$url" | sed -E 's|.*youtu\.be/([a-zA-Z0-9_-]+).*|\1|'
+    elif echo "$url" | grep -qE "youtube\.com/watch"; then
+        echo "$url" | sed -E 's|.*[?&]v=([a-zA-Z0-9_-]+).*|\1|'
+    else
+        echo ""
+    fi
+}
+
+# Get cache file path for a video ID
+get_video_cache_path() {
+    local video_id="$1"
+    echo "${VIDEO_CACHE_DIR}/${video_id}.json"
+}
+
+# Check if cache is valid (exists and less than VIDEO_CACHE_MAX_AGE_DAYS old)
+is_cache_valid() {
+    local cache_file="$1"
+    if [[ ! -f "$cache_file" ]]; then
+        return 1
+    fi
+
+    # Check file age
+    local file_age_days
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: use stat with -f %m for modification time
+        local file_mtime=$(stat -f %m "$cache_file" 2>/dev/null)
+        local current_time=$(date +%s)
+        file_age_days=$(( (current_time - file_mtime) / 86400 ))
+    else
+        # Linux: use stat with -c %Y
+        local file_mtime=$(stat -c %Y "$cache_file" 2>/dev/null)
+        local current_time=$(date +%s)
+        file_age_days=$(( (current_time - file_mtime) / 86400 ))
+    fi
+
+    [[ $file_age_days -lt $VIDEO_CACHE_MAX_AGE_DAYS ]]
+}
+
+# Track videos that failed to fetch in this run (to avoid retrying)
+declare -A FAILED_VIDEO_FETCHES
+
+# Fetch and cache video metadata using yt-dlp (single request for all data)
+fetch_video_metadata() {
+    local url="$1"
+    local video_id=$(get_youtube_video_id "$url")
+
+    if [[ -z "$video_id" ]]; then
+        return 1
+    fi
+
+    # Check if we already failed to fetch this video in this run
+    if [[ -n "${FAILED_VIDEO_FETCHES[$video_id]:-}" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo -e "        ${YELLOW}(skipping - fetch already failed this run)${NC}" >&2
+        return 1
+    fi
+
+    local cache_file=$(get_video_cache_path "$video_id")
+
+    # Check if we have valid cached data
+    if is_cache_valid "$cache_file"; then
+        [[ "$VERBOSE" == "true" ]] && echo -e "        ${GREEN}(using cached metadata)${NC}" >&2
+        return 0
+    fi
+
+    # Create cache directory if needed
+    mkdir -p "$VIDEO_CACHE_DIR"
+
+    # Build yt-dlp command with optional cookies - use native JSON output
+    local yt_dlp_cmd="yt-dlp --skip-download --no-warnings --dump-json"
+    if [[ -n "$COOKIES_FROM_BROWSER" ]]; then
+        yt_dlp_cmd="$yt_dlp_cmd --cookies-from-browser $COOKIES_FROM_BROWSER"
+    fi
+    yt_dlp_cmd="$yt_dlp_cmd '$url'"
+
+    LAST_CMD="$yt_dlp_cmd"
+    local result
+    result=$(run_with_timeout 60 "$yt_dlp_cmd")
+
+    if [[ "$result" == "TIMEOUT" ]]; then
+        # Mark as failed so we don't retry
+        FAILED_VIDEO_FETCHES[$video_id]=1
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo -e "\n        ${YELLOW}WARNING: yt-dlp timed out (60s) fetching video metadata${NC}" >&2
+            echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
+            echo -e "        ${YELLOW}TIP: To speed up YouTube checks:${NC}" >&2
+            if ! python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
+                echo -e "        ${YELLOW}  1. Install PO token provider: uv pip install bgutil-ytdlp-pot-provider${NC}" >&2
+            fi
+            if [[ -z "$COOKIES_FROM_BROWSER" ]]; then
+                echo -e "        ${YELLOW}  2. Use browser cookies: --cookies-from-browser firefox (after logging into YouTube)${NC}" >&2
+            fi
+        fi
+        return 1
+    fi
+
+    if [[ -z "$result" ]]; then
+        # Mark as failed so we don't retry
+        FAILED_VIDEO_FETCHES[$video_id]=1
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo -e "\n        ${YELLOW}Failed to fetch video metadata${NC}" >&2
+            echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
+            local stderr_out=$(get_last_stderr)
+            [[ -n "$stderr_out" ]] && echo -e "        ${YELLOW}Error: $stderr_out${NC}" >&2
+        fi
+        return 1
+    fi
+
+    # Save to cache
+    echo "$result" > "$cache_file"
+    [[ "$VERBOSE" == "true" ]] && echo -e "        ${GREEN}(fetched and cached metadata)${NC}" >&2
+    return 0
+}
+
+# Get a specific field from cached video metadata
+get_cached_video_field() {
+    local url="$1"
+    local field="$2"
+    local video_id=$(get_youtube_video_id "$url")
+
+    if [[ -z "$video_id" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local cache_file=$(get_video_cache_path "$video_id")
+
+    if [[ ! -f "$cache_file" ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Extract field from cached JSON using jq
+    local value
+    value=$(jq -r ".$field // empty" "$cache_file" 2>/dev/null)
+    echo "$value"
 }
 
 # Check if URL is valid YouTube format
@@ -846,40 +1512,56 @@ check_criterion() {
             return 1
             ;;
         is_public)
-            # Two-step check:
-            # 1. Verify URL returns a valid YouTube video (works without yt-dlp)
-            # 2. Check if video is public (requires yt-dlp)
+            # Check if video is public using oEmbed API (fast) and cached yt-dlp data
             local url=$(cat "$filepath" 2>/dev/null | head -1 | tr -d '[:space:]')
             if ! is_youtube_url "$url"; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                fi
                 return 1
             fi
 
-            # Step 1: Check if video exists using YouTube oEmbed API (no yt-dlp needed)
-            # oEmbed returns 200 for valid public videos, 401/404 for unavailable
+            # Step 1: Check if video exists using YouTube oEmbed API (no yt-dlp needed, fast)
             local oembed_url="https://www.youtube.com/oembed?url=${url}&format=json"
             local http_code
-            http_code=$(curl -s -o /dev/null -w "%{http_code}" "$oembed_url" 2>/dev/null)
+            LAST_CMD="curl -s -o /dev/null -w '%{http_code}' '$oembed_url'"
+            http_code=$(run_with_timeout 5 "$LAST_CMD")
+            if [[ "$http_code" == "TIMEOUT" ]]; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}WARNING: curl timed out (5s), skipping is_public check${NC}" >&2
+                    echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
+                fi
+                return 0  # Skip check on timeout
+            fi
             if [[ "$http_code" != "200" ]]; then
-                # Video doesn't exist or is not accessible
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Command: $LAST_CMD${NC}" >&2
+                    echo -e "        ${YELLOW}HTTP code: $http_code (expected 200)${NC}" >&2
+                fi
                 return 1
             fi
 
-            # Step 2: If yt-dlp available, verify it's public (not unlisted)
+            # Step 2: Check cached availability if yt-dlp available
             if command -v yt-dlp &>/dev/null; then
-                local availability
-                availability=$(yt-dlp --skip-download --no-warnings --print "%(availability)s" "$url" 2>/dev/null)
-                if [[ "$availability" == "public" ]]; then
+                # Fetch metadata (will use cache if valid)
+                if ! fetch_video_metadata "$url"; then
+                    # Failed to fetch, but oEmbed passed so likely public
                     return 0
                 fi
-                # If we got any response, video exists - check if it's not private
-                if [[ -n "$availability" && "$availability" != "private" ]]; then
+                local availability=$(get_cached_video_field "$url" "availability")
+                if [[ "$availability" == "public" || -z "$availability" ]]; then
                     return 0
                 fi
-            else
-                # yt-dlp not installed - oEmbed passed, so video is likely public
-                return 0
+                if [[ "$availability" != "private" ]]; then
+                    return 0
+                fi
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Availability: $availability (expected 'public' or non-private)${NC}" >&2
+                fi
+                return 1
             fi
-            return 1
+            # yt-dlp not installed - oEmbed passed, so video is likely public
+            return 0
             ;;
         duration_max_12min)
             # Check if video duration is max 12.5 minutes (750 seconds)
@@ -888,15 +1570,31 @@ check_criterion() {
                 return 0
             fi
             if ! is_youtube_url "$url"; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                fi
                 return 1
             fi
-            local duration
-            duration=$(yt-dlp --skip-download --no-warnings --print "%(duration)s" "$url" 2>/dev/null)
-            if [[ -z "$duration" || "$duration" == "NA" ]]; then
+
+            # Fetch metadata (will use cache if valid)
+            if ! fetch_video_metadata "$url"; then
+                return 0  # Skip check if fetch failed
+            fi
+
+            local duration=$(get_cached_video_field "$url" "duration")
+            if [[ -z "$duration" || "$duration" == "NA" || "$duration" == "null" ]]; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Duration: '$duration' (empty or NA)${NC}" >&2
+                fi
                 return 1
             fi
             # Max 750 seconds (12.5 minutes)
-            [[ "$duration" -le 750 ]] && return 0
+            if [[ "$duration" -le 750 ]]; then
+                return 0
+            fi
+            if [[ "$VERBOSE" == "true" ]]; then
+                echo -e "\n        ${YELLOW}Duration: ${duration}s exceeds max 750s (12.5 min)${NC}" >&2
+            fi
             return 1
             ;;
         resolution_min_1080p)
@@ -906,15 +1604,31 @@ check_criterion() {
                 return 0
             fi
             if ! is_youtube_url "$url"; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                fi
                 return 1
             fi
-            local height
-            height=$(yt-dlp --skip-download --no-warnings --print "%(height)s" "$url" 2>/dev/null)
-            if [[ -z "$height" || "$height" == "NA" ]]; then
+
+            # Fetch metadata (will use cache if valid)
+            if ! fetch_video_metadata "$url"; then
+                return 0  # Skip check if fetch failed
+            fi
+
+            local height=$(get_cached_video_field "$url" "height")
+            if [[ -z "$height" || "$height" == "NA" || "$height" == "null" ]]; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Height: '$height' (empty or NA)${NC}" >&2
+                fi
                 return 1
             fi
             # Min 1080 pixels height
-            [[ "$height" -ge 1080 ]] && return 0
+            if [[ "$height" -ge 1080 ]]; then
+                return 0
+            fi
+            if [[ "$VERBOSE" == "true" ]]; then
+                echo -e "\n        ${YELLOW}Resolution: ${height}p is below 1080p minimum${NC}" >&2
+            fi
             return 1
             ;;
         has_subtitles)
@@ -924,22 +1638,48 @@ check_criterion() {
                 return 0
             fi
             if ! is_youtube_url "$url"; then
+                if [[ "$VERBOSE" == "true" ]]; then
+                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                fi
                 return 1
             fi
-            local subs
-            subs=$(yt-dlp --skip-download --no-warnings --list-subs "$url" 2>/dev/null)
-            # Check for any subtitles (en, zh, zh-TW, zh-Hant, or auto-generated)
-            if echo "$subs" | grep -qiE "^(en|zh|zh-TW|zh-Hant|zh-Hans)"; then
+
+            # Fetch metadata (will use cache if valid)
+            if ! fetch_video_metadata "$url"; then
+                return 0  # Skip check if fetch failed
+            fi
+
+            local video_id=$(get_youtube_video_id "$url")
+            local cache_file=$(get_video_cache_path "$video_id")
+
+            # Check for subtitles using jq - look for language keys in subtitles or automatic_captions
+            # Accepted languages: en, zh, zh-TW, zh-Hant, zh-Hans
+            if jq -e '.subtitles | has("en") or has("zh") or has("zh-TW") or has("zh-Hant") or has("zh-Hans")' "$cache_file" >/dev/null 2>&1; then
                 return 0
             fi
-            # Also accept auto-generated subtitles
-            if echo "$subs" | grep -qi "subtitle"; then
+
+            # Also check automatic_captions
+            if jq -e '.automatic_captions | has("en") or has("zh") or has("zh-TW") or has("zh-Hant") or has("zh-Hans")' "$cache_file" >/dev/null 2>&1; then
                 return 0
+            fi
+            if [[ "$VERBOSE" == "true" ]]; then
+                echo -e "\n        ${YELLOW}No matching subtitles found (en/zh/zh-TW/zh-Hant/zh-Hans)${NC}" >&2
             fi
             return 1
             ;;
+        has_author)
+            # For individual submissions - singular author
+            content_contains "$filepath" "[Aa]uthor" && return 0
+            return 1
+            ;;
         has_authors)
-            content_contains "$filepath" "author\|Author\|group\|Group\|member\|Member" && return 0
+            # For group submissions - authors/group members/team
+            content_contains "$filepath" "[Aa]uthors\|[Gg]roup\|[Mm]embers\|[Tt]eam" && return 0
+            return 1
+            ;;
+        has_group_members)
+            # Specifically for report - check for group members section
+            content_contains "$filepath" "[Gg]roup\|[Mm]embers\|[Tt]eam" && return 0
             return 1
             ;;
         has_tools)
@@ -987,9 +1727,10 @@ get_criteria_array() {
             echo "key_type_valid:10:Valid key type"
             ;;
         case-brief)
-            echo "filename_format:15:File named correctly"
-            echo "file_extension:10:Has .md extension"
+            echo "filename_format:10:File named correctly"
+            echo "file_extension:5:Has .md extension"
             echo "has_license:10:Has license"
+            echo "has_author:10:Has author"
             echo "has_title:10:Has title"
             echo "has_problem_statement:10:Has problem statement"
             echo "has_context:10:Has context"
@@ -1002,21 +1743,24 @@ get_criteria_array() {
             echo "filename_format:10:File named correctly"
             echo "file_extension:5:Has .md extension"
             echo "figure_format:5:Figures named correctly"
-            echo "has_license:8:Has license"
-            echo "has_title_author:8:Has title/author"
-            echo "has_abstract:8:Has abstract"
-            echo "has_introduction:8:Has introduction"
-            echo "has_system_architecture:8:Has architecture"
-            echo "has_implementation:8:Has implementation"
-            echo "has_results:8:Has results"
-            echo "has_discussion:8:Has discussion"
-            echo "has_conclusion:8:Has conclusion"
-            echo "has_references:8:Has references"
+            echo "has_license:7:Has license"
+            echo "has_title:7:Has title"
+            echo "has_author:7:Has author"
+            echo "has_group_members:6:Has group members"
+            echo "has_abstract:7:Has abstract"
+            echo "has_introduction:7:Has introduction"
+            echo "has_system_architecture:7:Has architecture"
+            echo "has_implementation:7:Has implementation"
+            echo "has_results:6:Has results"
+            echo "has_discussion:6:Has discussion"
+            echo "has_conclusion:6:Has conclusion"
+            echo "has_references:7:Has references"
             ;;
         case-brief-group)
-            echo "filename_format:15:File named correctly"
-            echo "file_extension:10:Has .md extension"
+            echo "filename_format:10:File named correctly"
+            echo "file_extension:5:Has .md extension"
             echo "has_license:10:Has license"
+            echo "has_authors:10:Has authors"
             echo "has_title:10:Has title"
             echo "has_problem_statement:10:Has problem statement"
             echo "has_context:10:Has context"
@@ -1064,15 +1808,16 @@ get_criteria_array() {
             echo "filename_format:5:File named correctly"
             echo "file_extension:5:Has .md extension"
             echo "has_license:5:Has license"
+            echo "has_authors:5:Has authors"
             echo "has_overview:5:Has overview"
             echo "has_usage:5:Has usage"
-            echo "has_known_issues:5:Has known issues"
+            echo "has_known_issues:3:Has known issues"
             # Test types
             echo "has_unit_tests:5:Has unit tests"
             echo "has_integration_tests:5:Has integration tests"
             echo "has_e2e_tests:5:Has E2E tests"
             # Test case fields
-            echo "has_test_id:5:Has test ID"
+            echo "has_test_id:4:Has test ID"
             echo "has_test_description:5:Has test description"
             echo "has_preconditions:5:Has preconditions"
             echo "has_input:5:Has input"
@@ -1081,26 +1826,28 @@ get_criteria_array() {
             echo "has_status:5:Has status"
             # Analysis fields
             echo "has_result_summary:5:Has result summary"
-            echo "has_failed_analysis:5:Has failed analysis"
+            echo "has_failed_analysis:3:Has failed analysis"
             echo "has_performance_metrics:5:Has performance"
             echo "has_conclusion:5:Has conclusion"
             ;;
         system-design)
             echo "filename_format:10:File named correctly"
-            echo "file_extension:10:Has .drawio extension"
-            echo "has_pdf:15:Has exported PDF"
+            echo "file_extension:5:Has .drawio extension"
+            echo "has_pdf:10:Has exported PDF"
             echo "pdf_single_page:10:PDF is single page"
             echo "has_license:10:Has license"
+            echo "has_authors:10:Has authors"
             echo "uses_uml:15:Uses UML"
             echo "has_components:15:Has components"
             echo "has_connections:15:Has connections"
             ;;
         slides)
-            echo "filename_format:15:File named correctly"
+            echo "filename_format:10:File named correctly"
             echo "file_extension:5:Has .tex extension"
             echo "figure_format:5:Figures named correctly"
-            echo "no_template_files:10:No template files"
+            echo "no_template_files:5:No template files"
             echo "has_license:5:Has license"
+            echo "has_authors:10:Has authors"
             echo "has_title_slide:5:Has title slide"
             echo "has_problem:5:Has problem"
             echo "has_system_architecture:5:Has architecture"
@@ -1153,18 +1900,27 @@ evaluate_submission() {
     local criteria_lines
     criteria_lines=$(get_criteria_array "$submission_type")
 
+    [[ "$VERBOSE" == "true" ]] && echo "      Checking criteria for: $(basename "$filepath")" >&2
+
     # Process each criterion
     local line
     for line in ${(f)criteria_lines}; do
         local criterion="${line%%:*}"
         local rest="${line#*:}"
         local weight="${rest%%:*}"
+        local description="${rest#*:}"
+
+        if [[ "$VERBOSE" == "true" ]]; then
+            echo -n "        $criterion (weight: $weight)... " >&2
+        fi
 
         if check_criterion "$criterion" "$submission_type" "$filepath" "$year"; then
             score=$((score + weight))
+            [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;32mPASS\033[0m (+$weight)" >&2
         else
             [[ -n "$notes" ]] && notes="$notes; "
             notes="${notes}${criterion}"
+            [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;31mFAIL\033[0m" >&2
         fi
     done
 
@@ -1173,12 +1929,68 @@ evaluate_submission() {
         score=1
     fi
 
+    [[ "$VERBOSE" == "true" ]] && echo "      Total score: $score" >&2
+
     echo "${score}|${notes}"
 }
 
 # ============================================================================
 # FIND SUBMISSIONS
 # ============================================================================
+
+# Detect if a case-brief is individual or group based on content
+# Returns "individual", "group", or "unknown"
+# Individual: has "Author:" (singular) with typically one name
+# Group: has "Authors:" (plural), "Group:", "Members:", or "Author:" with 3+ names
+is_group_case_brief() {
+    local filepath="$1"
+    local first_lines
+    local author_line
+
+    [[ ! -f "$filepath" ]] && echo "unknown" && return
+
+    # Read first 20 lines to find author line
+    first_lines=$(head -20 "$filepath" 2>/dev/null)
+
+    # Check for "Authors:" (plural with 's') - definitely group
+    if echo "$first_lines" | grep -qiE "^[*#[:space:]]*authors[*]*[[:space:]]*:"; then
+        echo "group"
+        return
+    fi
+
+    # Check for "Group:" or "Members:" - definitely group
+    if echo "$first_lines" | grep -qiE "^[*#[:space:]]*(group|members)[*]*[[:space:]]*:"; then
+        echo "group"
+        return
+    fi
+
+    # Check for "Author:" (singular) and analyze content
+    author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*author[*]*[[:space:]]*:" | head -1)
+    if [[ -n "$author_line" ]]; then
+        # Extract the part after "Author:"
+        local names_part="${author_line#*:}"
+        # Remove markdown formatting
+        names_part=$(echo "$names_part" | sed 's/[*#]//g')
+
+        # Count potential names by looking for patterns:
+        # - Comma-separated names (e.g., "Name1, Name2, Name3")
+        # - Multiple YYYY- prefixed names
+        local comma_count=$(echo "$names_part" | tr -cd ',' | wc -c)
+        local year_prefix_count=$(echo "$names_part" | grep -oE '20[0-9]{2}-' | wc -l)
+
+        # If 2+ commas OR 2+ year-prefixed names, it's a group (3+ people)
+        if [[ "$comma_count" -ge 2 ]] || [[ "$year_prefix_count" -ge 2 ]]; then
+            echo "group"
+            return
+        fi
+
+        # Single author - individual
+        echo "individual"
+        return
+    fi
+
+    echo "unknown"
+}
 
 # Find all individual submissions of a type for a year
 find_individual_submissions() {
@@ -1193,16 +2005,21 @@ find_individual_submissions() {
         ssh-key)
             find "$folder_path" -maxdepth 1 -name "${year}-*.pub" -type f 2>/dev/null | sort
             ;;
-        case-brief|report)
-            # Find individual markdown files (YYYY-FamilyName-FirstName.md format)
+        case-brief)
+            # Find individual case-briefs based on content (Author: singular, not Authors: plural)
+            # This filters out group case-briefs that were placed in the individual folder
             find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | while read -r f; do
-                local basename=$(basename "$f" .md)
-                local name_part="${basename#${year}-}"
-                # Individual format: exactly two name parts separated by dash
-                if [[ "$name_part" =~ ^[A-Za-z]+-[A-Za-z]+$ ]]; then
+                local brief_type=$(is_group_case_brief "$f")
+                # Include if individual or unknown (give benefit of doubt)
+                if [[ "$brief_type" != "group" ]]; then
                     echo "$f"
                 fi
             done | sort
+            ;;
+        report)
+            # Find ALL report markdown files matching YYYY-*.md pattern
+            # Files with naming errors will get filename_format=0 but still be evaluated
+            find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | sort
             ;;
     esac
 }
@@ -1218,13 +2035,11 @@ find_group_submissions() {
 
     case "$submission_type" in
         case-brief-group)
-            # Find group markdown files (3+ name parts)
+            # Find group markdown files based on content (Authors: plural)
+            # Filter out individual submissions that were misplaced in this folder
             find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | while read -r f; do
-                local basename=$(basename "$f" .md)
-                local name_part="${basename#${year}-}"
-                # Group format: at least 3 name parts
-                local dash_count=$(echo "$name_part" | tr -cd '-' | wc -c)
-                if [[ "$dash_count" -ge 2 ]]; then
+                local brief_type=$(is_group_case_brief "$f")
+                if [[ "$brief_type" == "group" ]]; then
                     echo "$f"
                 fi
             done | sort
@@ -1247,6 +2062,47 @@ find_group_submissions() {
             find "$folder_path" -maxdepth 1 -name "${year}-*.txt" -type f 2>/dev/null | sort
             ;;
     esac
+}
+
+# Count all files/folders matching year pattern for a submission type
+# Returns total count regardless of naming format (for verification)
+count_all_submissions() {
+    local submission_type="$1"
+    local year="$2"
+    local folder="${FOLDER_MAP[$submission_type]}"
+    local folder_path="$BASE_DIR/$folder"
+    local count=0
+
+    [[ ! -d "$folder_path" ]] && echo "0" && return
+
+    case "$submission_type" in
+        ssh-key)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.pub" -type f 2>/dev/null | wc -l)
+            ;;
+        case-brief|report)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | wc -l)
+            ;;
+        case-brief-group)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | wc -l)
+            ;;
+        data|project-code)
+            count=$(find "$folder_path" -maxdepth 1 -type d -name "${year}-*" 2>/dev/null | wc -l)
+            ;;
+        tests|reflection)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | wc -l)
+            ;;
+        system-design)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.drawio" -type f 2>/dev/null | wc -l)
+            ;;
+        slides)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.tex" -type f 2>/dev/null | wc -l)
+            ;;
+        video)
+            count=$(find "$folder_path" -maxdepth 1 -name "${year}-*.txt" -type f 2>/dev/null | wc -l)
+            ;;
+    esac
+
+    echo "$((count))"  # Trim whitespace
 }
 
 # ============================================================================
@@ -1349,30 +2205,61 @@ update_csv_value() {
 write_csv() {
     local csvfile="$1"
     local header="$2"
-    local key row_key row col display_name
+    local key row_key row col display_name normalized
     local -a header_cols
     local -a unique_rows
 
     print -r -- "$header" > "$csvfile"
 
-    # Get unique row keys into an array (keys use underscores)
-    # Note: Do NOT quote ${(k)...} - quoting adds literal quotes to keys
-    typeset -A row_keys_map
+    # Get unique row keys and merge duplicates using normalized keys
+    # This handles cases like "Fan_ChengYu" and "Fan_Cheng-Yu" being the same person
+    typeset -A row_keys_map      # storage_key → 1
+    typeset -A normalized_to_display  # normalized_key → display_name (first seen)
+    typeset -A normalized_to_storage  # normalized_key → storage_key (first seen)
+
     for key in ${(k)CSV_DATA}; do
         row_key="${key%%,*}"
-        row_keys_map[$row_key]=1
+        if [[ -z "${row_keys_map[$row_key]:-}" ]]; then
+            row_keys_map[$row_key]=1
+            # Convert storage key back to display name
+            display_name="${row_key//_/ }"
+            # Normalize for deduplication
+            normalized=$(echo "$display_name" | sed 's/[-_ ,;:]//g' | tr '[:upper:]' '[:lower:]')
+            if [[ -z "${normalized_to_display[$normalized]:-}" ]]; then
+                normalized_to_display[$normalized]="$display_name"
+                normalized_to_storage[$normalized]="$row_key"
+            fi
+        fi
     done
-    unique_rows=(${(k)row_keys_map})
 
-    # Write each row
-    # Use zsh array splitting
+    # Write each unique row (merged by normalized key)
     header_cols=(${(s:,:)header})
-    for row_key in ${unique_rows[@]}; do
-        # Convert underscores back to spaces for display
-        display_name="${row_key//_/ }"
+    for normalized in ${(k)normalized_to_display}; do
+        display_name="${normalized_to_display[$normalized]}"
         row="$display_name"
+
         for col in ${header_cols[@]:1}; do  # Skip first column (row key)
-            row="$row,${CSV_DATA[$row_key,$col]:-0}"
+            # Find best value from all storage keys that normalize to this key
+            local best_val="0"
+            for storage_key in ${(k)row_keys_map}; do
+                local sk_display="${storage_key//_/ }"
+                local sk_normalized=$(echo "$sk_display" | sed 's/[-_ ,;:]//g' | tr '[:upper:]' '[:lower:]')
+                if [[ "$sk_normalized" == "$normalized" ]]; then
+                    local val="${CSV_DATA[$storage_key,$col]:-}"
+                    # Prefer non-zero numeric values, or non-empty strings
+                    if [[ -n "$val" && "$val" != "0" ]]; then
+                        if [[ "$val" =~ ^[0-9]+$ && "$best_val" =~ ^[0-9]+$ ]]; then
+                            # For numeric values, take the higher score
+                            if [[ "$val" -gt "$best_val" ]]; then
+                                best_val="$val"
+                            fi
+                        elif [[ "$best_val" == "0" || "$best_val" == "No submission" || "$best_val" == "No group submission" ]]; then
+                            best_val="$val"
+                        fi
+                    fi
+                fi
+            done
+            row="$row,$best_val"
         done
         print -r -- "$row"
     done | sort >> "$csvfile"
@@ -1406,13 +2293,22 @@ evaluate_group_submissions() {
 
     # Evaluate each submission type
     local submissions filepath group_key filename result score notes display_key
+    local filename_names_spaces validation_warnings
+    local processed_count total_count
     for submission_type in "${GROUP_SUBMISSIONS[@]}"; do
         echo "Checking $submission_type submissions..."
 
         submissions=$(find_group_submissions "$submission_type" "$year")
+        processed_count=0
 
         if [[ -z "$submissions" ]]; then
             echo "  No submissions found"
+            # Still check if there are files that weren't found due to pattern issues
+            total_count=$(count_all_submissions "$submission_type" "$year")
+            if [[ "$total_count" -gt 0 ]]; then
+                echo -e "    ${YELLOW}WARNING: Submission count mismatch! Files in folder: $total_count, Processed: 0${NC}"
+                echo "    Some files may have naming errors preventing discovery."
+            fi
             continue
         fi
 
@@ -1421,6 +2317,7 @@ evaluate_group_submissions() {
             [[ -z "$filepath" ]] && continue
 
             filename=$(basename "$filepath")
+            processed_count=$((processed_count + 1))
 
             if [[ -d "$filepath" ]]; then
                 group_key=$(basename "$filepath")
@@ -1428,12 +2325,18 @@ evaluate_group_submissions() {
                 group_key="${filename%.*}"
             fi
             group_key="${group_key#${year}-}"
-            # Strip common suffixes from group key
-            group_key="${group_key%-data}"
-            group_key="${group_key%-code}"
-            group_key="${group_key%-Figures}"
+            # Strip ALL known submission type suffixes from group key
+            # This prevents "Khan-Liu-Peng-tests" from being treated as 4 names
+            group_key=$(strip_submission_suffixes "$group_key")
 
             echo "  Found: $filename"
+
+            # Validate group names and output warnings
+            filename_names_spaces=$(echo "$group_key" | tr '-' ' ')
+            validation_warnings=$(validate_group_names "$filepath" "$filename_names_spaces" "$submission_type")
+            if [[ -n "$validation_warnings" ]]; then
+                echo -e "$validation_warnings"
+            fi
 
             result=$(evaluate_submission "$submission_type" "$filepath" "$year")
             score="${result%%|*}"
@@ -1450,25 +2353,66 @@ evaluate_group_submissions() {
             update_csv_value "$display_key" "${submission_type}_notes" "$notes"
         done
 
+        # Verify submission count matches
+        total_count=$(count_all_submissions "$submission_type" "$year")
+        if [[ "$processed_count" -ne "$total_count" ]]; then
+            echo -e "    ${YELLOW}WARNING: Submission count mismatch! Files in folder: $total_count, Processed: $processed_count${NC}"
+            echo "    Some files may have naming errors preventing discovery."
+        fi
+
         echo ""
     done
 
     # Set score 0 for groups with no submission for a type
+    # Also count how many submission types each group has (to detect misplaced individuals)
     # found_groups keys are already underscore-based to avoid quoting issues
     # Note: Do NOT quote ${(k)found_groups} - quoting adds literal quotes to keys
     local group_storage_key group_display
+    local -A group_submission_counts
+    local total_group_types=${#GROUP_SUBMISSIONS[@]}
+
     for group_storage_key in ${(k)found_groups}; do
         # Convert underscores back to spaces for display
         group_display="${group_storage_key//_/ }"
+        local submission_count=0
         for submission_type in "${GROUP_SUBMISSIONS[@]}"; do
             if [[ -z "${CSV_DATA[$group_storage_key,$submission_type]:-}" ]]; then
                 update_csv_value "$group_display" "$submission_type" "0"
                 update_csv_value "$group_display" "${submission_type}_notes" "No submission"
+            else
+                # Count non-zero submissions
+                local score_val="${CSV_DATA[$group_storage_key,$submission_type]}"
+                if [[ "$score_val" != "0" ]]; then
+                    submission_count=$((submission_count + 1))
+                fi
             fi
         done
+        group_submission_counts[$group_storage_key]=$submission_count
     done
 
+    # Warn about potential misplaced individual submissions
+    # If a "group" only has submissions for ≤2 types (missing from ≥6), likely an individual
+    echo ""
+    echo "Checking for potential misplaced individual submissions..."
+    local misplaced_count=0
+    for group_storage_key in ${(k)found_groups}; do
+        group_display="${group_storage_key//_/ }"
+        local count=${group_submission_counts[$group_storage_key]:-0}
+        local missing_count=$((total_group_types - count))
+
+        if [[ $missing_count -ge 6 ]]; then
+            echo -e "    ${YELLOW}WARNING: '$group_display' only has $count of $total_group_types group submissions.${NC}"
+            echo "    This may be an INDIVIDUAL submission misplaced in group folder."
+            misplaced_count=$((misplaced_count + 1))
+        fi
+    done
+
+    if [[ $misplaced_count -eq 0 ]]; then
+        echo "  No misplaced submissions detected."
+    fi
+
     # Write CSV
+    echo ""
     write_csv "$csvfile" "$header"
     echo "Group CSV written to: $csvfile"
 }
@@ -1485,8 +2429,8 @@ evaluate_individual_submissions() {
     # Clear any existing CSV data (start fresh each run)
     CSV_DATA=()
 
-    # Build header
-    local header="Student Name"
+    # Build header - add Inconsistent_name column after Student Name
+    local header="Student Name,Inconsistent_name"
     for sub in "${INDIVIDUAL_SUBMISSIONS[@]}"; do
         header="$header,$sub"
     done
@@ -1500,13 +2444,17 @@ evaluate_individual_submissions() {
         header="$header,${sub}_notes"
     done
 
-    # Track students
-    declare -A found_students
-    declare -A student_groups  # Map student to their group key
+    # Track students using normalized keys for deduplication
+    declare -A found_students          # normalized_key → 1
+    declare -A student_canonical_name  # normalized_key → canonical display name
+    declare -A student_groups          # canonical_name → group key
+    declare -A inconsistent_names      # normalized_key → 1 if multiple spellings found
 
     # Declare loop variables (all at start to avoid zsh output issues)
     local submissions filepath filename result score notes base name_part family_name first_name student_key
     local group_members rest idx sub student student_family notes_idx
+    local processed_count total_count
+    local normalized_key canonical_name
     local -a values
 
     # Evaluate individual submissions
@@ -1514,9 +2462,16 @@ evaluate_individual_submissions() {
         echo "Checking $submission_type submissions..."
 
         submissions=$(find_individual_submissions "$submission_type" "$year")
+        processed_count=0
 
         if [[ -z "$submissions" ]]; then
             echo "  No submissions found"
+            # Still check if there are files that weren't found due to pattern issues
+            total_count=$(count_all_submissions "$submission_type" "$year")
+            if [[ "$total_count" -gt 0 ]]; then
+                echo -e "    ${YELLOW}WARNING: Submission count mismatch! Files in folder: $total_count, Processed: 0${NC}"
+                echo "    Some files may have naming errors preventing discovery."
+            fi
             continue
         fi
 
@@ -1525,23 +2480,51 @@ evaluate_individual_submissions() {
             [[ -z "$filepath" ]] && continue
 
             filename=$(basename "$filepath")
+            processed_count=$((processed_count + 1))
             echo "  Found: $filename"
 
             result=$(evaluate_submission "$submission_type" "$filepath" "$year")
             score="${result%%|*}"
             notes="${result#*|}"
 
-            # Extract student name
+            # Extract student name (strip submission suffixes like -report)
             base="${filename%.*}"
             name_part="${base#${year}-}"
+            # Strip submission type suffixes before extracting names
+            name_part=$(strip_submission_suffixes "$name_part")
             family_name="${name_part%%-*}"
             first_name="${name_part#*-}"
             student_key="$family_name $first_name"
 
-            found_students[$student_key]=1
-            update_csv_value "$student_key" "$submission_type" "$score"
-            update_csv_value "$student_key" "${submission_type}_notes" "$notes"
+            # Normalize for duplicate detection (removes all separators)
+            normalized_key=$(normalize_student_key "$student_key")
+
+            # Check if we've seen this student with different name spelling
+            if [[ -n "${student_canonical_name[$normalized_key]:-}" ]]; then
+                # Use the existing canonical name
+                canonical_name="${student_canonical_name[$normalized_key]}"
+                if [[ "$student_key" != "$canonical_name" ]]; then
+                    echo "    (Merging with existing entry: $canonical_name)"
+                    # Mark this student as having inconsistent name spellings
+                    inconsistent_names[$normalized_key]=1
+                fi
+            else
+                # First time seeing this student - use this as canonical name
+                canonical_name="$student_key"
+                student_canonical_name[$normalized_key]="$canonical_name"
+            fi
+
+            found_students[$normalized_key]=1
+            update_csv_value "$canonical_name" "$submission_type" "$score"
+            update_csv_value "$canonical_name" "${submission_type}_notes" "$notes"
         done
+
+        # Verify submission count matches
+        total_count=$(count_all_submissions "$submission_type" "$year")
+        if [[ "$processed_count" -ne "$total_count" ]]; then
+            echo -e "    ${YELLOW}WARNING: Submission count mismatch! Files in folder: $total_count, Processed: $processed_count${NC}"
+            echo "    Some files may have naming errors preventing discovery."
+        fi
 
         echo ""
     done
@@ -1549,6 +2532,7 @@ evaluate_individual_submissions() {
     # Load group CSV to copy group scores
     if [[ -f "$group_csvfile" ]]; then
         echo "Copying group scores from $group_csvfile..."
+        echo ""
 
         # Build mapping from student family names to group scores
         while IFS=',' read -r group_members rest; do
@@ -1557,43 +2541,59 @@ evaluate_individual_submissions() {
             # Use zsh array splitting
             values=(${(s:,:):-${group_members},${rest}})
 
+            # Normalize the group members string for comparison
+            local group_normalized=$(normalize_student_key "$group_members")
+
             # Parse the CSV line properly
             idx=0
             for sub in "${GROUP_SUBMISSIONS[@]}"; do
-                ((idx++))
+                idx=$((idx + 1))
                 score="${values[$((idx+1))]:-0}"  # zsh arrays are 1-indexed
 
                 # Find notes column
                 notes_idx=$((idx + 1 + ${#GROUP_SUBMISSIONS[@]}))
                 notes="${values[$notes_idx]:-}"
 
-                # Assign to each student whose family name is in the group
-                for student in ${(k)found_students}; do
-                    student_family="${student%% *}"
-                    if [[ "$group_members" == *"$student_family"* ]]; then
-                        update_csv_value "$student" "$sub" "$score"
-                        update_csv_value "$student" "${sub}_notes" "$notes"
-                        student_groups[$student]=$group_members
+                # Assign to each student whose normalized family name matches part of the group
+                for norm_key in ${(k)found_students}; do
+                    canonical_name="${student_canonical_name[$norm_key]}"
+                    student_family="${canonical_name%% *}"
+                    local student_family_norm=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
+
+                    # Check if student's family name (normalized) is in the group members (normalized)
+                    if [[ "$group_normalized" == *"$student_family_norm"* ]]; then
+                        update_csv_value "$canonical_name" "$sub" "$score"
+                        update_csv_value "$canonical_name" "${sub}_notes" "$notes"
+                        student_groups[$canonical_name]=$group_members
                     fi
                 done
             done
         done < "$group_csvfile"
     fi
 
-    # Set score 0 for students with no submission
+    # Set score 0 for students with no submission and set Inconsistent_name flag
     local storage_key
-    for student in ${(k)found_students}; do
-        storage_key="${student// /_}"
+    for norm_key in ${(k)found_students}; do
+        canonical_name="${student_canonical_name[$norm_key]}"
+        storage_key="${canonical_name// /_}"
+
+        # Set Inconsistent_name flag (true if multiple spellings were found)
+        if [[ -n "${inconsistent_names[$norm_key]:-}" ]]; then
+            update_csv_value "$canonical_name" "Inconsistent_name" "true"
+        else
+            update_csv_value "$canonical_name" "Inconsistent_name" "0"
+        fi
+
         for submission_type in "${INDIVIDUAL_SUBMISSIONS[@]}"; do
             if [[ -z "${CSV_DATA[$storage_key,$submission_type]:-}" ]]; then
-                update_csv_value "$student" "$submission_type" "0"
-                update_csv_value "$student" "${submission_type}_notes" "No submission"
+                update_csv_value "$canonical_name" "$submission_type" "0"
+                update_csv_value "$canonical_name" "${submission_type}_notes" "No submission"
             fi
         done
         for submission_type in "${GROUP_SUBMISSIONS[@]}"; do
             if [[ -z "${CSV_DATA[$storage_key,$submission_type]:-}" ]]; then
-                update_csv_value "$student" "$submission_type" "0"
-                update_csv_value "$student" "${submission_type}_notes" "No group submission"
+                update_csv_value "$canonical_name" "$submission_type" "0"
+                update_csv_value "$canonical_name" "${submission_type}_notes" "No group submission"
             fi
         done
     done
@@ -1706,6 +2706,14 @@ parse_args() {
                 fi
                 shift
                 ;;
+            -v|--verbose)
+                VERBOSE=true
+                shift
+                ;;
+            --cookies-from-browser)
+                COOKIES_FROM_BROWSER="$2"
+                shift 2
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -1749,6 +2757,16 @@ main() {
     echo "========================================"
     echo ""
 
+    # Check for jq (needed for parsing video metadata JSON)
+    if ! command -v jq &>/dev/null; then
+        echo -e "${RED}ERROR: jq not found. Required for video metadata parsing.${NC}"
+        echo "      Install jq:"
+        echo "        macOS:  brew install jq"
+        echo "        Linux:  sudo apt install jq"
+        echo ""
+        exit 1
+    fi
+
     # Check for yt-dlp (needed for video metadata checks)
     if ! command -v yt-dlp &>/dev/null; then
         echo -e "${YELLOW}NOTE: yt-dlp not found. Video checks (duration, resolution, subtitles) will be skipped.${NC}"
@@ -1756,6 +2774,15 @@ main() {
         echo "        macOS:  brew install yt-dlp"
         echo "        Linux:  pip install yt-dlp  OR  sudo apt install yt-dlp"
         echo ""
+    else
+        # Check for PO token provider (speeds up YouTube API access significantly)
+        if ! python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
+            echo -e "${YELLOW}NOTE: bgutil-ytdlp-pot-provider not found. YouTube checks may be slow.${NC}"
+            echo "      Install for faster video metadata fetching:"
+            echo "        uv pip install bgutil-ytdlp-pot-provider"
+            echo "        OR: pip install bgutil-ytdlp-pot-provider"
+            echo ""
+        fi
     fi
 
     # Check for exiftool or pdfinfo (needed for PDF page count)
@@ -1782,6 +2809,7 @@ main() {
         fi
 
         evaluate_single_submission "$SPECIFIC_SUBMISSION" "$YEAR"
+        cleanup_tmp
         exit 0
     fi
 
@@ -1798,6 +2826,9 @@ main() {
     echo "========================================"
     echo "Evaluation complete!"
     echo "========================================"
+
+    # Clean up temp directory on successful completion
+    cleanup_tmp
 }
 
 main "$@"

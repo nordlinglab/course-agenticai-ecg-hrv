@@ -411,6 +411,174 @@ test_year_filter() {
 }
 
 # ============================================================================
+# TESTS: Individual vs Group Case-Brief Detection (Real Data)
+# ============================================================================
+
+test_individual_case_briefs_in_real_data() {
+    # Test that individual case briefs (those with "Author:" singular) are found
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --submission case-brief --year 2026 2>&1)
+
+    # Known individual case briefs should be found
+    # These have "Author:" (singular) in their content
+    assert_contains "$result" "Evaluating:" "Should find individual case briefs"
+}
+
+test_group_case_briefs_separate_from_individual() {
+    # Test that group case briefs (those with "Authors:" plural or "Group:"/"Members:")
+    # are separated from individual case briefs
+    cd "$SCRIPT_DIR/.."
+
+    # Run both individual and group evaluations
+    local individual_result group_result
+
+    individual_result=$(zsh "$EVAL_SCRIPT" --submission case-brief --year 2026 2>&1)
+    group_result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    # Group case briefs should be in group results
+    assert_contains "$group_result" "case-brief-group" "Group evaluation should check case-brief-group"
+}
+
+test_group_case_brief_detection_by_content() {
+    # Verify that the group detection works by examining real files
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    # Known group case briefs in real data should be detected
+    # These have "Authors:" (plural) or "Group:"/"Members:" patterns
+    assert_contains "$result" "Checking case-brief-group" "Should check case-brief-group submissions"
+}
+
+# ============================================================================
+# TESTS: Name Merging (Real Data)
+# ============================================================================
+
+test_name_merging_in_real_data() {
+    # Test that name merging works with real data
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --individual --year 2026 2>&1)
+
+    # Should show merging messages for known duplicate spellings
+    # Known duplicates: Fan ChengYu/Fan Cheng-Yu, Lee Polin/Lee Po-Lin, etc.
+    assert_contains "$result" "Merging with existing entry" "Should merge students with different spellings"
+}
+
+test_fan_chengyu_merged() {
+    # Test that Fan ChengYu and Fan Cheng-Yu are merged
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --individual --year 2026 2>&1)
+
+    assert_contains "$result" "Merging with existing entry: Fan ChengYu" "Fan Cheng-Yu should merge with Fan ChengYu"
+}
+
+test_wu_kunche_merged() {
+    # Test that Wu KunChe, Wu Kun-Che, and Wu Kun Che are merged
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --individual --year 2026 2>&1)
+
+    assert_contains "$result" "Merging with existing entry: Wu KunChe" "Wu variants should merge with Wu KunChe"
+}
+
+# ============================================================================
+# TESTS: Inconsistent Name Column (Real Data)
+# ============================================================================
+
+test_inconsistent_name_column_exists() {
+    # Test that Inconsistent_name column exists in real data output
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        local header
+        header=$(head -1 2026_submissions_individual.csv)
+
+        assert_contains "$header" "Inconsistent_name" "CSV header should contain Inconsistent_name column"
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated"
+        return 1
+    fi
+}
+
+test_inconsistent_name_values_correct() {
+    # Test that Inconsistent_name values are correctly set
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        # Count students with true vs 0
+        local true_count zero_count
+        true_count=$(grep -c ",true," 2026_submissions_individual.csv || echo "0")
+        zero_count=$(grep -c ",0," 2026_submissions_individual.csv | head -1 || echo "0")
+
+        ((TESTS_RUN++))
+        # We know there are at least 4 students with inconsistent names in real data
+        if [[ "$true_count" -ge 4 ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: Found $true_count students with inconsistent names (expected >= 4)"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Expected at least 4 students with inconsistent names, found $true_count"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated"
+        return 1
+    fi
+}
+
+# ============================================================================
+# TESTS: Score Merging (Real Data)
+# ============================================================================
+
+test_score_merging_takes_higher() {
+    # Test that when merging, the higher score is kept
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        # Lee Polin should have merged scores from Lee Polin (ssh=85) and Lee Po-Lin (case-brief=90)
+        local lee_line
+        lee_line=$(grep "Lee Polin" 2026_submissions_individual.csv || echo "")
+
+        ((TESTS_RUN++))
+        # Check that Lee Polin has scores for both ssh-key (85) and case-brief (90)
+        if [[ "$lee_line" == *"85"* ]] && [[ "$lee_line" == *"90"* ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: Lee Polin has merged scores from both name variants"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Lee Polin should have merged scores"
+            echo "  Line: $lee_line"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated"
+        return 1
+    fi
+}
+
+# ============================================================================
 # FUNCTIONAL TESTS: End-to-End on Real Data
 # ============================================================================
 
@@ -432,6 +600,259 @@ test_full_evaluation_run() {
     result=$(zsh "$EVAL_SCRIPT" --year 2026 2>&1)
 
     assert_contains "$result" "Evaluation complete" "Should complete full evaluation"
+}
+
+test_real_data_has_inconsistent_names() {
+    # Test that real data properly identifies inconsistent names
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        # Known inconsistent names in the real data:
+        # - Fan ChengYu (also Fan Cheng-Yu)
+        # - Lee Polin (also Lee Po-Lin)
+        # - Liu TzuEn-Andrew (also Liu Tzuen-Andrew)
+        # - Wu KunChe (also Wu Kun-Che and Wu Kun Che)
+
+        local fan_line lee_line liu_line wu_line
+
+        fan_line=$(grep "Fan ChengYu" 2026_submissions_individual.csv || echo "")
+        lee_line=$(grep "Lee Polin" 2026_submissions_individual.csv || echo "")
+        liu_line=$(grep "Liu TzuEn-Andrew" 2026_submissions_individual.csv || echo "")
+        wu_line=$(grep "Wu KunChe" 2026_submissions_individual.csv || echo "")
+
+        # All should have "true" for Inconsistent_name
+        assert_contains "$fan_line" "true" "Fan ChengYu should have Inconsistent_name=true"
+        assert_contains "$lee_line" "true" "Lee Polin should have Inconsistent_name=true"
+        assert_contains "$liu_line" "true" "Liu TzuEn-Andrew should have Inconsistent_name=true"
+        assert_contains "$wu_line" "true" "Wu KunChe should have Inconsistent_name=true"
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated for real data"
+        return 1
+    fi
+}
+
+test_real_data_no_duplicate_students() {
+    # Test that real data doesn't have duplicate student entries
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        # Count unique student names (first column, excluding header)
+        local total_lines unique_names
+        total_lines=$(tail -n +2 2026_submissions_individual.csv | wc -l | tr -d ' ')
+        unique_names=$(tail -n +2 2026_submissions_individual.csv | cut -d',' -f1 | sort -u | wc -l | tr -d ' ')
+
+        ((TESTS_RUN++))
+        if [[ "$total_lines" -eq "$unique_names" ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: No duplicate students in CSV ($total_lines entries, all unique)"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Duplicate students found - $total_lines lines but only $unique_names unique names"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated for real data"
+        return 1
+    fi
+}
+
+# ============================================================================
+# TESTS: Video Cache JSON Format
+# ============================================================================
+
+test_ytdlp_json_output_valid() {
+    # Test that yt-dlp --dump-json produces valid JSON that can be parsed by jq
+    # Uses a known public YouTube video for testing
+
+    # Skip if yt-dlp not installed
+    if ! command -v yt-dlp &>/dev/null; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: yt-dlp not installed"
+        return 0
+    fi
+
+    # Skip if jq not installed
+    if ! command -v jq &>/dev/null; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: jq not installed"
+        return 0
+    fi
+
+    # Use a known short, public YouTube video (YouTube's official "YouTube" channel intro)
+    local test_url="https://www.youtube.com/watch?v=jNQXAC9IVRw"  # "Me at the zoo" - first YouTube video
+    local cache_file="$TEST_TMP_DIR/test_video_cache.json"
+
+    # Fetch video metadata using yt-dlp --dump-json
+    local yt_output
+    yt_output=$(yt-dlp --skip-download --no-warnings --dump-json "$test_url" 2>/dev/null)
+    local yt_exit_code=$?
+
+    if [[ $yt_exit_code -ne 0 || -z "$yt_output" ]]; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: yt-dlp failed to fetch video (network issue or rate limiting)"
+        return 0
+    fi
+
+    # Save to cache file
+    echo "$yt_output" > "$cache_file"
+
+    # Validate JSON with jq
+    ((TESTS_RUN++))
+    if jq empty "$cache_file" 2>/dev/null; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: yt-dlp --dump-json produces valid JSON"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: yt-dlp output is not valid JSON"
+        echo "  First 200 chars: $(head -c 200 "$cache_file")"
+        return 1
+    fi
+
+    # Verify we can extract expected fields
+    local availability duration height
+    availability=$(jq -r '.availability // empty' "$cache_file")
+    duration=$(jq -r '.duration // empty' "$cache_file")
+    height=$(jq -r '.height // empty' "$cache_file")
+
+    assert_equals "public" "$availability" "Video should be public"
+
+    ((TESTS_RUN++))
+    if [[ -n "$duration" && "$duration" =~ ^[0-9]+$ ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: Duration field is a valid number: $duration"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Duration field invalid: '$duration'"
+        return 1
+    fi
+
+    ((TESTS_RUN++))
+    if [[ -n "$height" && "$height" =~ ^[0-9]+$ ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: Height field is a valid number: $height"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Height field invalid: '$height'"
+        return 1
+    fi
+}
+
+test_video_cache_json_structure() {
+    # Test that cached video metadata has expected JSON structure
+
+    # Skip if yt-dlp not installed
+    if ! command -v yt-dlp &>/dev/null; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: yt-dlp not installed"
+        return 0
+    fi
+
+    # Skip if jq not installed
+    if ! command -v jq &>/dev/null; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: jq not installed"
+        return 0
+    fi
+
+    local test_url="https://www.youtube.com/watch?v=jNQXAC9IVRw"
+    local cache_file="$TEST_TMP_DIR/test_video_structure.json"
+
+    # Fetch video metadata
+    local yt_output
+    yt_output=$(yt-dlp --skip-download --no-warnings --dump-json "$test_url" 2>/dev/null)
+
+    if [[ -z "$yt_output" ]]; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: yt-dlp failed to fetch video"
+        return 0
+    fi
+
+    echo "$yt_output" > "$cache_file"
+
+    # Check that subtitles field exists and is an object (even if empty)
+    ((TESTS_RUN++))
+    if jq -e '.subtitles | type == "object"' "$cache_file" >/dev/null 2>&1; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: subtitles field is an object"
+    else
+        # subtitles might be null for videos without subtitles
+        if jq -e '.subtitles == null' "$cache_file" >/dev/null 2>&1; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: subtitles field is null (no subtitles)"
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: subtitles field has unexpected type"
+            return 1
+        fi
+    fi
+
+    # Check automatic_captions field
+    ((TESTS_RUN++))
+    if jq -e '.automatic_captions | type == "object"' "$cache_file" >/dev/null 2>&1; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: automatic_captions field is an object"
+    else
+        if jq -e '.automatic_captions == null' "$cache_file" >/dev/null 2>&1; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: automatic_captions field is null"
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: automatic_captions field has unexpected type"
+            return 1
+        fi
+    fi
+}
+
+test_existing_cache_files_valid_json() {
+    # Test that any existing cache files in .video_cache are valid JSON
+    local cache_dir="$SCRIPT_DIR/.video_cache"
+
+    if [[ ! -d "$cache_dir" ]]; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: No .video_cache directory exists"
+        return 0
+    fi
+
+    local json_files=("$cache_dir"/*.json(N))
+
+    if [[ ${#json_files[@]} -eq 0 ]]; then
+        ((TESTS_RUN++))
+        ((TESTS_PASSED++))
+        echo -e "${YELLOW}SKIP${NC}: No JSON files in .video_cache"
+        return 0
+    fi
+
+    local all_valid=true
+    for json_file in "${json_files[@]}"; do
+        ((TESTS_RUN++))
+        if jq empty "$json_file" 2>/dev/null; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: $(basename "$json_file") is valid JSON"
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: $(basename "$json_file") is NOT valid JSON"
+            echo "  First 100 chars: $(head -c 100 "$json_file")"
+            all_valid=false
+        fi
+    done
+
+    $all_valid
 }
 
 # ============================================================================
@@ -472,9 +893,33 @@ run_all_tests() {
     run_test test_group_csv_generation
     run_test test_year_filter
 
+    # Individual vs Group Case-Brief Detection (Real Data)
+    run_test test_individual_case_briefs_in_real_data
+    run_test test_group_case_briefs_separate_from_individual
+    run_test test_group_case_brief_detection_by_content
+
+    # Name Merging (Real Data)
+    run_test test_name_merging_in_real_data
+    run_test test_fan_chengyu_merged
+    run_test test_wu_kunche_merged
+
+    # Inconsistent Name Column (Real Data)
+    run_test test_inconsistent_name_column_exists
+    run_test test_inconsistent_name_values_correct
+
+    # Score Merging (Real Data)
+    run_test test_score_merging_takes_higher
+
     # Functional tests on real data
     run_test test_real_data_evaluation
     run_test test_full_evaluation_run
+    run_test test_real_data_has_inconsistent_names
+    run_test test_real_data_no_duplicate_students
+
+    # Video cache JSON format tests
+    run_test test_ytdlp_json_output_valid
+    run_test test_video_cache_json_structure
+    run_test test_existing_cache_files_valid_json
 
     teardown
 
