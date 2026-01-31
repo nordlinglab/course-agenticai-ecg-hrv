@@ -299,7 +299,86 @@ is_ascii() {
 # 4. Filenames must NOT include submission type suffixes (tests, reflection, etc.)
 #
 # Known submission type suffixes to filter out (case-insensitive):
-KNOWN_SUFFIXES=("data" "code" "tests" "reflection" "video" "slides" "Figures" "figure" "Figure" "report")
+# These are tags that should NOT be treated as names
+KNOWN_SUFFIXES=("data" "code" "tests" "test" "reflection" "video" "slides" "slide" "Figures" "figure" "Figure" "report" "system" "design" "brief" "case" "project" "group" "individual")
+
+# Allowed suffixes for group folder names (only these are valid)
+ALLOWED_FOLDER_SUFFIXES=("data" "code")
+
+# Calculate Levenshtein distance between two strings
+# Returns: distance as integer
+levenshtein_distance() {
+    local s1="$1"
+    local s2="$2"
+    local len1=${#s1}
+    local len2=${#s2}
+
+    # Quick checks
+    [[ "$s1" == "$s2" ]] && echo 0 && return
+    [[ $len1 -eq 0 ]] && echo $len2 && return
+    [[ $len2 -eq 0 ]] && echo $len1 && return
+
+    # For efficiency, only compute if lengths differ by at most 1
+    local len_diff=$((len1 > len2 ? len1 - len2 : len2 - len1))
+    if [[ $len_diff -gt 1 ]]; then
+        echo $len_diff
+        return
+    fi
+
+    # Simple character-by-character comparison for short strings
+    local i diff=0
+    local max_len=$((len1 > len2 ? len1 : len2))
+    for ((i=0; i<max_len; i++)); do
+        local c1="${s1:$i:1}"
+        local c2="${s2:$i:1}"
+        [[ "$c1" != "$c2" ]] && ((diff++))
+    done
+    echo $diff
+}
+
+# Check if a word is a known tag (exact or fuzzy match with 1 char tolerance)
+# Returns: 0 if matches a tag, 1 if not a tag
+# Sets global TAG_MATCH to the matched tag name (for reporting)
+TAG_MATCH=""
+is_known_tag() {
+    local word="$1"
+    local word_lower="${(L)word}"  # lowercase
+
+    TAG_MATCH=""
+
+    local tag
+    for tag in "${KNOWN_SUFFIXES[@]}"; do
+        local tag_lower="${(L)tag}"
+
+        # Exact match
+        if [[ "$word_lower" == "$tag_lower" ]]; then
+            TAG_MATCH="$tag"
+            return 0
+        fi
+
+        # Fuzzy match (1 character difference)
+        local dist=$(levenshtein_distance "$word_lower" "$tag_lower")
+        if [[ $dist -eq 1 ]]; then
+            TAG_MATCH="$tag (fuzzy match from '$word')"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Check if a suffix is allowed for folder names
+# Only -data and -code are allowed
+is_allowed_folder_suffix() {
+    local suffix="$1"
+    local suffix_lower="${(L)suffix}"
+
+    local allowed
+    for allowed in "${ALLOWED_FOLDER_SUFFIXES[@]}"; do
+        [[ "$suffix_lower" == "${(L)allowed}" ]] && return 0
+    done
+    return 1
+}
 
 # Remove known submission type suffixes from a name string
 # This prevents "Khan-Liu-Peng-tests" from being parsed as 4 names
@@ -771,16 +850,28 @@ validate_group_names() {
     local warnings=""
 
     # Check 1: Validate each name looks like a proper name (capitalized)
+    # Skip warnings for known tags (system, design, slides, etc.)
     local name
     for name in "${name_array[@]}"; do
         if ! is_valid_name "$name"; then
-            warnings="${warnings}    WARNING: '$name' doesn't look like a valid name (should be capitalized)\n"
+            # Skip warning if it's a known tag
+            if ! is_known_tag "$name"; then
+                warnings="${warnings}    WARNING: '$name' doesn't look like a valid name (should be capitalized)\n"
+            fi
         fi
     done
 
     # Check 2: Verify names are in alphabetical order (heuristic - needs content verification)
+    # Filter out known tags before checking alphabetical order
+    local names_without_tags=""
+    for name in "${name_array[@]}"; do
+        if ! is_known_tag "$name"; then
+            [[ -n "$names_without_tags" ]] && names_without_tags="$names_without_tags "
+            names_without_tags="$names_without_tags$name"
+        fi
+    done
     local not_alphabetical=false
-    if ! are_names_alphabetical "$filename_names"; then
+    if [[ -n "$names_without_tags" ]] && ! are_names_alphabetical "$names_without_tags"; then
         not_alphabetical=true
     fi
 
@@ -853,7 +944,7 @@ validate_group_names() {
     fi
 
     if $not_alphabetical && ! $verified_by_content; then
-        warnings="${warnings}    WARNING: Names not in alphabetical order: $filename_names\n"
+        warnings="${warnings}    WARNING: Names not in alphabetical order: $names_without_tags\n"
     fi
 
     # Output warnings if any
@@ -900,12 +991,33 @@ check_individual_filename_format() {
 }
 
 # Check if file has correct group filename format: YYYY-FamilyName1-FamilyName2[-FamilyName3...].ext
+# Files should NOT have any tag suffixes (unlike folders which allow -data/-code)
 check_group_filename_format() {
     local filepath="$1"
     local year="$2"
     local filename=$(basename "$filepath")
+    local basename="${filename%.*}"  # Remove extension
 
-    # Pattern: YYYY-Name1-Name2[-Name3...].ext (at least 2 family names)
+    # First check basic pattern
+    if ! [[ "$filename" =~ ^${year}-[A-Za-z]+-[A-Za-z]+(-[A-Za-z]+)*\.[a-z]+$ ]]; then
+        return 1
+    fi
+
+    # Extract parts after year (Name1-Name2-Name3...)
+    local names_part="${basename#${year}-}"
+    local -a parts
+    parts=(${(s:-:)names_part})
+
+    # Check each part - if any is a known tag, fail
+    local part
+    for part in "${parts[@]}"; do
+        if is_known_tag "$part"; then
+            [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(contains tag: $TAG_MATCH) ${NC}" >&2
+            return 1
+        fi
+    done
+
+    # Now check proper capitalization (all names should be Capitalized)
     if [[ "$filename" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*\.[a-z]+$ ]]; then
         return 0
     fi
@@ -913,16 +1025,65 @@ check_group_filename_format() {
 }
 
 # Check if folder has correct group folder format
+# Pattern: YYYY-Name1-Name2[-Name3...][-data|-code] (at least 2 family names)
+# Only -data and -code suffixes are allowed; other tags like -slides, -system-design are NOT allowed
 check_group_folder_format() {
     local folderpath="$1"
     local year="$2"
     local foldername=$(basename "$folderpath")
 
-    # Pattern: YYYY-Name1-Name2[-Name3...][-data|-code] (at least 2 family names, optional suffix)
-    # Allow -data and -code suffixes for data-group and project-code-group submissions
-    if [[ "$foldername" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*(-(data|code))?$ ]]; then
-        return 0
+    # First check basic pattern
+    if ! [[ "$foldername" =~ ^${year}-[A-Za-z]+-[A-Za-z]+(-[A-Za-z]+)*$ ]]; then
+        return 1
     fi
+
+    # Extract parts after year (Name1-Name2-Name3[-suffix])
+    local names_part="${foldername#${year}-}"
+    local -a parts
+    parts=(${(s:-:)names_part})
+
+    # Check each part - if any is a known tag, it must be an allowed suffix at the end
+    local i part
+    local num_parts=${#parts[@]}
+    local found_disallowed_tag=""
+
+    for ((i=1; i<=num_parts; i++)); do
+        part="${parts[$i]}"
+        if is_known_tag "$part"; then
+            # It's a tag - check if it's allowed and at the end
+            if [[ $i -eq $num_parts ]]; then
+                # Last part - check if it's an allowed suffix
+                if ! is_allowed_folder_suffix "$part"; then
+                    found_disallowed_tag="$TAG_MATCH"
+                fi
+            else
+                # Tag in the middle - not allowed
+                found_disallowed_tag="$TAG_MATCH"
+            fi
+        fi
+    done
+
+    if [[ -n "$found_disallowed_tag" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(contains disallowed tag: $found_disallowed_tag) ${NC}" >&2
+        return 1
+    fi
+
+    # Now check proper capitalization (all name parts should be Capitalized, allowed suffixes are lowercase)
+    # Allow last part to be lowercase if it's an allowed suffix
+    local last_part="${parts[$num_parts]}"
+    if is_allowed_folder_suffix "$last_part"; then
+        # Remove last part for capitalization check
+        local names_without_suffix="${names_part%-${last_part}}"
+        if [[ "$names_without_suffix" =~ ^[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*$ ]]; then
+            return 0
+        fi
+    else
+        # No suffix - all parts must be capitalized names
+        if [[ "$names_part" =~ ^[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*$ ]]; then
+            return 0
+        fi
+    fi
+
     return 1
 }
 
@@ -1249,7 +1410,25 @@ check_criterion() {
             # For system-design and slides: FAIL if submission is a folder instead of a file
             if [[ "$submission_type" == "system-design" || "$submission_type" == "slides" ]]; then
                 if [[ -d "$filepath" ]]; then
-                    [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(folder submitted, expected file) ${NC}" >&2
+                    local foldername=$(basename "$filepath")
+                    local msg="folder submitted, expected file"
+                    # Also check for disallowed tags in folder name
+                    local names_part="${foldername#${year}-}"
+                    local -a parts
+                    parts=(${(s:-:)names_part})
+                    local part found_tags=""
+                    for part in "${parts[@]}"; do
+                        if is_known_tag "$part"; then
+                            if ! is_allowed_folder_suffix "$part"; then
+                                [[ -n "$found_tags" ]] && found_tags="$found_tags, "
+                                found_tags="${found_tags}${TAG_MATCH}"
+                            fi
+                        fi
+                    done
+                    if [[ -n "$found_tags" ]]; then
+                        msg="$msg; disallowed tags: $found_tags"
+                    fi
+                    [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}($msg) ${NC}" >&2
                     return 1
                 fi
             fi
