@@ -39,6 +39,11 @@ COOKIES_FROM_BROWSER=""
 VIDEO_CACHE_DIR="${SCRIPT_DIR}/.video_cache"
 VIDEO_CACHE_MAX_AGE_DAYS=30
 
+# Partial credit scoring globals
+CRITERION_SCORE_PCT=100
+AUTHOR_SCORE_PENALTIES=""
+SINGULAR_PLURAL_DETAIL=""
+
 # Submission types
 INDIVIDUAL_SUBMISSIONS=("ssh-key" "case-brief" "report")
 GROUP_SUBMISSIONS=("case-brief-group" "data" "project-code" "tests" "system-design" "slides" "video" "reflection")
@@ -531,6 +536,126 @@ normalize_name_string() {
     echo "$name"
 }
 
+# ============================================================================
+# PARTIAL CREDIT SCORING FOR AUTHOR CHECKS
+# ============================================================================
+
+# Check if any name in the author line has year-prefix format (e.g., 2026-Chen-KunYu)
+# This is the only format we penalize as it's clearly a filename format, not a name
+# Returns: 0 if year-prefix found (bad), 1 if no year-prefix (good)
+has_year_prefix_format() {
+    local author_line="$1"
+    # Matches: 2026-Chen-KunYu, 2026-Lin-Chih-Yi, etc.
+    echo "$author_line" | grep -qE '(^|[,;[:space:]])20[0-9]{2}-[A-Za-z]'
+}
+
+# Count the number of authors in an author line
+# Handles comma-separated, semicolon-separated, and "and" separated names
+# Returns: integer count
+count_authors_in_line() {
+    local author_line="$1"
+
+    # Remove markdown formatting
+    author_line=$(echo "$author_line" | sed 's/[*#`]//g')
+
+    # Replace " and " with comma, semicolons with comma for uniform counting
+    author_line=$(echo "$author_line" | sed 's/ and /,/gi' | tr ';' ',')
+
+    # Count entries by counting commas + 1 (if there's content)
+    # First check if there's any content at all
+    if ! echo "$author_line" | grep -q '[A-Za-z]'; then
+        echo "0"
+        return
+    fi
+
+    # Count commas and add 1
+    local comma_count
+    comma_count=$(echo "$author_line" | tr -cd ',' | wc -c | tr -d ' ')
+    local count=$((comma_count + 1))
+
+    echo "$count"
+}
+
+# Check if Author/Authors keyword matches the number of authors
+# Returns: 0 if correct, 1 if mismatch
+# Also sets SINGULAR_PLURAL_DETAIL with explanation
+check_singular_plural_match() {
+    local filepath="$1"
+    local author_count="$2"
+
+    # Read first 20 lines to find author line
+    local first_lines
+    first_lines=$(head -20 "$filepath" 2>/dev/null)
+
+    # Check for "Authors:" (plural with 's') - must have 's' before colon
+    local has_plural=false
+    local has_singular=false
+
+    if echo "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
+        has_plural=true
+    fi
+
+    # Check for "Author:" (singular) - must NOT have 's' before colon
+    # Use word boundary to distinguish Author: from Authors:
+    if echo "$first_lines" | grep -qiE '^[*#[:space:]]*author[*]*[[:space:]]*:' && \
+       ! echo "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
+        has_singular=true
+    fi
+
+    # Determine if there's a mismatch
+    if [[ $author_count -ge 2 ]] && $has_singular && ! $has_plural; then
+        SINGULAR_PLURAL_DETAIL="uses 'Author:' for $author_count authors"
+        return 1
+    fi
+
+    if [[ $author_count -eq 1 ]] && $has_plural; then
+        SINGULAR_PLURAL_DETAIL="uses 'Authors:' for 1 author"
+        return 1
+    fi
+
+    SINGULAR_PLURAL_DETAIL=""
+    return 0
+}
+
+# Calculate partial credit score for author-related criteria
+# Returns: "score|penalties" string (e.g., "50|singular/plural mismatch; ")
+# Arguments: filepath, is_group (true/false)
+calculate_author_score() {
+    local filepath="$1"
+    local is_group="$2"
+
+    local score=100
+    local penalties=""
+
+    # Get author line content
+    local author_line
+    author_line=$(extract_authors_from_content "$filepath" | tr '\n' ',' | sed 's/,$//')
+
+    if [[ -z "$author_line" ]]; then
+        echo "0|no author info found"
+        return
+    fi
+
+    # Count authors
+    local author_count
+    author_count=$(count_authors_in_line "$author_line")
+
+    # Check 1: Singular/plural mismatch
+    if ! check_singular_plural_match "$filepath" "$author_count"; then
+        score=$((score / 2))
+        penalties="${penalties}${SINGULAR_PLURAL_DETAIL}; "
+    fi
+
+    # Check 2: Year-prefix format (e.g., 2026-Chen-KunYu)
+    if has_year_prefix_format "$author_line"; then
+        score=$((score / 2))
+        penalties="${penalties}year-prefix format (e.g. 2026-Name); "
+    fi
+
+    # Return score and penalties separated by |
+    echo "${score}|${penalties}"
+}
+
 # Extract all potential family names from content authors
 # Returns: space-separated list of all potential family names (lowercase for comparison)
 get_content_family_names() {
@@ -793,8 +918,9 @@ check_group_folder_format() {
     local year="$2"
     local foldername=$(basename "$folderpath")
 
-    # Pattern: YYYY-Name1-Name2[-Name3...] (at least 2 family names, no extension)
-    if [[ "$foldername" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*$ ]]; then
+    # Pattern: YYYY-Name1-Name2[-Name3...][-data|-code] (at least 2 family names, optional suffix)
+    # Allow -data and -code suffixes for data-group and project-code-group submissions
+    if [[ "$foldername" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*(-(data|code))?$ ]]; then
         return 0
     fi
     return 1
@@ -902,6 +1028,20 @@ get_last_stderr() {
 # VIDEO METADATA CACHE
 # ============================================================================
 
+# Check if bgutil-ytdlp-pot-provider is available (pip package OR Docker container)
+# Returns 0 if available, 1 if not
+is_bgutil_pot_provider_available() {
+    # Check 1: Python package installed
+    if python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
+        return 0
+    fi
+    # Check 2: Docker HTTP server running on port 4416
+    if curl -s -o /dev/null -w '%{http_code}' --connect-timeout 1 http://127.0.0.1:4416/ 2>/dev/null | grep -q "200\|404"; then
+        return 0
+    fi
+    return 1
+}
+
 # Extract YouTube video ID from URL
 get_youtube_video_id() {
     local url="$1"
@@ -959,7 +1099,7 @@ fetch_video_metadata() {
 
     # Check if we already failed to fetch this video in this run
     if [[ -n "${FAILED_VIDEO_FETCHES[$video_id]:-}" ]]; then
-        [[ "$VERBOSE" == "true" ]] && echo -e "        ${YELLOW}(skipping - fetch already failed this run)${NC}" >&2
+        [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(skip-failed) ${NC}" >&2
         return 1
     fi
 
@@ -967,7 +1107,7 @@ fetch_video_metadata() {
 
     # Check if we have valid cached data
     if is_cache_valid "$cache_file"; then
-        [[ "$VERBOSE" == "true" ]] && echo -e "        ${GREEN}(using cached metadata)${NC}" >&2
+        [[ "$VERBOSE" == "true" ]] && echo -n -e "${GREEN}(cached) ${NC}" >&2
         return 0
     fi
 
@@ -989,14 +1129,13 @@ fetch_video_metadata() {
         # Mark as failed so we don't retry
         FAILED_VIDEO_FETCHES[$video_id]=1
         if [[ "$VERBOSE" == "true" ]]; then
-            echo -e "\n        ${YELLOW}WARNING: yt-dlp timed out (60s) fetching video metadata${NC}" >&2
+            echo -n -e "${YELLOW}WARNING: yt-dlp timed out (60s) fetching video metadata${NC}" >&2
             echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
-            echo -e "        ${YELLOW}TIP: To speed up YouTube checks:${NC}" >&2
-            if ! python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
-                echo -e "        ${YELLOW}  1. Install PO token provider: uv pip install bgutil-ytdlp-pot-provider${NC}" >&2
+            if ! is_bgutil_pot_provider_available; then
+                echo -e "        ${YELLOW}TIP: Start PO token provider: docker start bgutil-provider${NC}" >&2
             fi
             if [[ -z "$COOKIES_FROM_BROWSER" ]]; then
-                echo -e "        ${YELLOW}  2. Use browser cookies: --cookies-from-browser firefox (after logging into YouTube)${NC}" >&2
+                echo -e "        ${YELLOW}TIP: Use browser cookies: --cookies-from-browser firefox${NC}" >&2
             fi
         fi
         return 1
@@ -1006,7 +1145,7 @@ fetch_video_metadata() {
         # Mark as failed so we don't retry
         FAILED_VIDEO_FETCHES[$video_id]=1
         if [[ "$VERBOSE" == "true" ]]; then
-            echo -e "\n        ${YELLOW}Failed to fetch video metadata${NC}" >&2
+            echo -n -e "${YELLOW}Failed to fetch video metadata${NC}" >&2
             echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
             local stderr_out=$(get_last_stderr)
             [[ -n "$stderr_out" ]] && echo -e "        ${YELLOW}Error: $stderr_out${NC}" >&2
@@ -1016,7 +1155,7 @@ fetch_video_metadata() {
 
     # Save to cache
     echo "$result" > "$cache_file"
-    [[ "$VERBOSE" == "true" ]] && echo -e "        ${GREEN}(fetched and cached metadata)${NC}" >&2
+    [[ "$VERBOSE" == "true" ]] && echo -n -e "${GREEN}(fetched) ${NC}" >&2
     return 0
 }
 
@@ -1326,7 +1465,22 @@ check_criterion() {
             return 1
             ;;
         readme_has_authors)
-            [[ -f "$filepath/README.md" ]] && content_contains "$filepath/README.md" "author\|Author\|member\|Member\|team\|Team" && return 0
+            # For README files in group submissions (with partial credit)
+            if [[ ! -f "$filepath/README.md" ]]; then
+                CRITERION_SCORE_PCT=0
+                AUTHOR_SCORE_PENALTIES="no README.md found"
+                return 1
+            fi
+            if ! content_contains "$filepath/README.md" "author\|Author\|member\|Member\|team\|Team"; then
+                CRITERION_SCORE_PCT=0
+                AUTHOR_SCORE_PENALTIES="no author info in README"
+                return 1
+            fi
+            local result
+            result=$(calculate_author_score "$filepath/README.md" "true")
+            CRITERION_SCORE_PCT="${result%%|*}"
+            AUTHOR_SCORE_PENALTIES="${result#*|}"
+            [[ $CRITERION_SCORE_PCT -gt 0 ]] && return 0
             return 1
             ;;
         readme_has_description)
@@ -1516,7 +1670,7 @@ check_criterion() {
             local url=$(cat "$filepath" 2>/dev/null | head -1 | tr -d '[:space:]')
             if ! is_youtube_url "$url"; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                    echo -n -e "${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
                 fi
                 return 1
             fi
@@ -1528,14 +1682,14 @@ check_criterion() {
             http_code=$(run_with_timeout 5 "$LAST_CMD")
             if [[ "$http_code" == "TIMEOUT" ]]; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}WARNING: curl timed out (5s), skipping is_public check${NC}" >&2
+                    echo -n -e "${YELLOW}WARNING: curl timed out (5s), skipping is_public check${NC}" >&2
                     echo -e "        ${YELLOW}Command: $LAST_CMD${NC}" >&2
                 fi
                 return 0  # Skip check on timeout
             fi
             if [[ "$http_code" != "200" ]]; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Command: $LAST_CMD${NC}" >&2
+                    echo -n -e "${YELLOW}Command: $LAST_CMD${NC}" >&2
                     echo -e "        ${YELLOW}HTTP code: $http_code (expected 200)${NC}" >&2
                 fi
                 return 1
@@ -1556,7 +1710,7 @@ check_criterion() {
                     return 0
                 fi
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Availability: $availability (expected 'public' or non-private)${NC}" >&2
+                    echo -n -e "${YELLOW}Availability: $availability (expected 'public' or non-private)${NC}" >&2
                 fi
                 return 1
             fi
@@ -1571,7 +1725,7 @@ check_criterion() {
             fi
             if ! is_youtube_url "$url"; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                    echo -n -e "${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
                 fi
                 return 1
             fi
@@ -1584,7 +1738,7 @@ check_criterion() {
             local duration=$(get_cached_video_field "$url" "duration")
             if [[ -z "$duration" || "$duration" == "NA" || "$duration" == "null" ]]; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Duration: '$duration' (empty or NA)${NC}" >&2
+                    echo -n -e "${YELLOW}Duration: '$duration' (empty or NA)${NC}" >&2
                 fi
                 return 1
             fi
@@ -1593,7 +1747,7 @@ check_criterion() {
                 return 0
             fi
             if [[ "$VERBOSE" == "true" ]]; then
-                echo -e "\n        ${YELLOW}Duration: ${duration}s exceeds max 750s (12.5 min)${NC}" >&2
+                echo -n -e "${YELLOW}Duration: ${duration}s exceeds max 750s (12.5 min)${NC}" >&2
             fi
             return 1
             ;;
@@ -1605,7 +1759,7 @@ check_criterion() {
             fi
             if ! is_youtube_url "$url"; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                    echo -n -e "${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
                 fi
                 return 1
             fi
@@ -1618,7 +1772,7 @@ check_criterion() {
             local height=$(get_cached_video_field "$url" "height")
             if [[ -z "$height" || "$height" == "NA" || "$height" == "null" ]]; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Height: '$height' (empty or NA)${NC}" >&2
+                    echo -n -e "${YELLOW}Height: '$height' (empty or NA)${NC}" >&2
                 fi
                 return 1
             fi
@@ -1627,7 +1781,7 @@ check_criterion() {
                 return 0
             fi
             if [[ "$VERBOSE" == "true" ]]; then
-                echo -e "\n        ${YELLOW}Resolution: ${height}p is below 1080p minimum${NC}" >&2
+                echo -n -e "${YELLOW}Resolution: ${height}p is below 1080p minimum${NC}" >&2
             fi
             return 1
             ;;
@@ -1639,7 +1793,7 @@ check_criterion() {
             fi
             if ! is_youtube_url "$url"; then
                 if [[ "$VERBOSE" == "true" ]]; then
-                    echo -e "\n        ${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
+                    echo -n -e "${YELLOW}Invalid YouTube URL: '$url'${NC}" >&2
                 fi
                 return 1
             fi
@@ -1663,18 +1817,36 @@ check_criterion() {
                 return 0
             fi
             if [[ "$VERBOSE" == "true" ]]; then
-                echo -e "\n        ${YELLOW}No matching subtitles found (en/zh/zh-TW/zh-Hant/zh-Hans)${NC}" >&2
+                echo -n -e "${YELLOW}No matching subtitles found (en/zh/zh-TW/zh-Hant/zh-Hans)${NC}" >&2
             fi
             return 1
             ;;
         has_author)
-            # For individual submissions - singular author
-            content_contains "$filepath" "[Aa]uthor" && return 0
+            # For individual submissions - singular author (with partial credit)
+            if ! content_contains "$filepath" "[Aa]uthor"; then
+                CRITERION_SCORE_PCT=0
+                AUTHOR_SCORE_PENALTIES="no author info found"
+                return 1
+            fi
+            local result
+            result=$(calculate_author_score "$filepath" "false")
+            CRITERION_SCORE_PCT="${result%%|*}"
+            AUTHOR_SCORE_PENALTIES="${result#*|}"
+            [[ $CRITERION_SCORE_PCT -gt 0 ]] && return 0
             return 1
             ;;
         has_authors)
-            # For group submissions - authors/group members/team
-            content_contains "$filepath" "[Aa]uthors\|[Gg]roup\|[Mm]embers\|[Tt]eam" && return 0
+            # For group submissions - author(s)/group members/team (with partial credit)
+            if ! content_contains "$filepath" "[Aa]uthors\|[Aa]uthor\|[Gg]roup\|[Mm]embers\|[Tt]eam"; then
+                CRITERION_SCORE_PCT=0
+                AUTHOR_SCORE_PENALTIES="no author info found"
+                return 1
+            fi
+            local result
+            result=$(calculate_author_score "$filepath" "true")
+            CRITERION_SCORE_PCT="${result%%|*}"
+            AUTHOR_SCORE_PENALTIES="${result#*|}"
+            [[ $CRITERION_SCORE_PCT -gt 0 ]] && return 0
             return 1
             ;;
         has_group_members)
@@ -1914,9 +2086,27 @@ evaluate_submission() {
             echo -n "        $criterion (weight: $weight)... " >&2
         fi
 
+        # Reset partial credit percentage (some criteria set this for partial scoring)
+        CRITERION_SCORE_PCT=100
+        AUTHOR_SCORE_PENALTIES=""
+
         if check_criterion "$criterion" "$submission_type" "$filepath" "$year"; then
-            score=$((score + weight))
-            [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;32mPASS\033[0m (+$weight)" >&2
+            # Calculate points with potential partial credit
+            local earned_points=$((weight * CRITERION_SCORE_PCT / 100))
+            score=$((score + earned_points))
+
+            if [[ $CRITERION_SCORE_PCT -eq 100 ]]; then
+                [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;32mPASS\033[0m (+$weight)" >&2
+            else
+                # Partial credit
+                [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;33mPARTIAL\033[0m (+$earned_points of $weight, ${CRITERION_SCORE_PCT}%)" >&2
+                if [[ "$VERBOSE" == "true" && -n "$AUTHOR_SCORE_PENALTIES" ]]; then
+                    echo -e "          \033[0;33m↳ ${AUTHOR_SCORE_PENALTIES}\033[0m" >&2
+                fi
+                # Add to notes with partial indicator
+                [[ -n "$notes" ]] && notes="$notes; "
+                notes="${notes}${criterion}(${CRITERION_SCORE_PCT}%)"
+            fi
         else
             [[ -n "$notes" ]] && notes="$notes; "
             notes="${notes}${criterion}"
@@ -2776,11 +2966,13 @@ main() {
         echo ""
     else
         # Check for PO token provider (speeds up YouTube API access significantly)
-        if ! python3 -c "import bgutil_ytdlp_pot_provider" 2>/dev/null; then
-            echo -e "${YELLOW}NOTE: bgutil-ytdlp-pot-provider not found. YouTube checks may be slow.${NC}"
-            echo "      Install for faster video metadata fetching:"
-            echo "        uv pip install bgutil-ytdlp-pot-provider"
-            echo "        OR: pip install bgutil-ytdlp-pot-provider"
+        if ! is_bgutil_pot_provider_available; then
+            echo -e "${YELLOW}NOTE: bgutil-ytdlp-pot-provider not running. YouTube checks may be slow.${NC}"
+            echo "      Setup PO token provider (one-time):"
+            echo "        curl -fsSL https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/1.2.2/bgutil-ytdlp-pot-provider.zip -o ~/.config/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip"
+            echo "        docker pull brainicism/bgutil-ytdlp-pot-provider"
+            echo "      Start server before running:"
+            echo "        docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider"
             echo ""
         fi
     fi
