@@ -382,14 +382,21 @@ is_allowed_folder_suffix() {
 
 # Remove known submission type suffixes from a name string
 # This prevents "Khan-Liu-Peng-tests" from being parsed as 4 names
+# Loops until no more suffixes can be stripped (handles "Khan-Liu-Peng-system-design")
 strip_submission_suffixes() {
     local name="$1"
+    local prev_name=""
     local suffix
-    for suffix in "${KNOWN_SUFFIXES[@]}"; do
-        # Remove suffix with dash prefix (case insensitive)
-        name="${name%-${suffix}}"
-        name="${name%-${(L)suffix}}"  # lowercase version
-        name="${name%-${(C)suffix}}"  # capitalized version
+
+    # Keep stripping suffixes until no more changes
+    while [[ "$name" != "$prev_name" ]]; do
+        prev_name="$name"
+        for suffix in "${KNOWN_SUFFIXES[@]}"; do
+            # Remove suffix with dash prefix (case insensitive)
+            name="${name%-${suffix}}"
+            name="${name%-${(L)suffix}}"  # lowercase version
+            name="${name%-${(C)suffix}}"  # capitalized version
+        done
     done
     echo "$name"
 }
