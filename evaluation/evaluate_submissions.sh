@@ -926,6 +926,48 @@ check_group_folder_format() {
     return 1
 }
 
+# Find the main file inside a folder submission
+# For system-design: looks for .drawio file
+# For slides: looks for .tex file
+# Returns: path to main file, or empty if not found
+find_main_file_in_folder() {
+    local folderpath="$1"
+    local submission_type="$2"
+
+    [[ ! -d "$folderpath" ]] && echo "" && return
+
+    case "$submission_type" in
+        system-design)
+            # Find .drawio file in folder
+            find "$folderpath" -maxdepth 1 -name "*.drawio" -type f 2>/dev/null | head -1
+            ;;
+        slides)
+            # Find .tex file in folder (prefer main.tex if exists)
+            if [[ -f "$folderpath/main.tex" ]]; then
+                echo "$folderpath/main.tex"
+            else
+                find "$folderpath" -maxdepth 1 -name "*.tex" -type f 2>/dev/null | head -1
+            fi
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# Get the effective file path for evaluation
+# If submission is a folder, returns the main file inside; otherwise returns the path as-is
+get_effective_filepath() {
+    local filepath="$1"
+    local submission_type="$2"
+
+    if [[ -d "$filepath" ]]; then
+        find_main_file_in_folder "$filepath" "$submission_type"
+    else
+        echo "$filepath"
+    fi
+}
+
 # Check if file content contains a pattern (case-insensitive)
 content_contains() {
     local filepath="$1"
@@ -1204,6 +1246,13 @@ check_criterion() {
 
     case "$criterion" in
         filename_format)
+            # For system-design and slides: FAIL if submission is a folder instead of a file
+            if [[ "$submission_type" == "system-design" || "$submission_type" == "slides" ]]; then
+                if [[ -d "$filepath" ]]; then
+                    [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(folder submitted, expected file) ${NC}" >&2
+                    return 1
+                fi
+            fi
             if [[ "$submission_type" == "ssh-key" || "$submission_type" == "case-brief" || "$submission_type" == "report" ]]; then
                 check_individual_filename_format "$filepath" "$year" && return 0
             else
@@ -1216,7 +1265,13 @@ check_criterion() {
             return 1
             ;;
         file_extension)
-            local ext="${filepath##*.}"
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            local ext="${check_path##*.}"
             case "$submission_type" in
                 ssh-key) [[ "$ext" == "pub" ]] && return 0 ;;
                 case-brief|case-brief-group|report|tests|reflection) [[ "$ext" == "md" ]] && return 0 ;;
@@ -1244,7 +1299,13 @@ check_criterion() {
             return 1
             ;;
         has_license)
-            content_contains "$filepath" "license\|License\|LICENSE\|CC-BY\|Apache\|SPDX" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "license\|License\|LICENSE\|CC-BY\|Apache\|SPDX" && return 0
             return 1
             ;;
         has_title)
@@ -1298,7 +1359,13 @@ check_criterion() {
             return 1
             ;;
         has_system_architecture)
-            content_contains "$filepath" "architecture\|Architecture" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "architecture\|Architecture" && return 0
             return 1
             ;;
         has_implementation)
@@ -1306,7 +1373,13 @@ check_criterion() {
             return 1
             ;;
         has_results)
-            content_contains "$filepath" "result\|Result\|demo\|Demo\|demonstration\|Demonstration" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "result\|Result\|demo\|Demo\|demonstration\|Demonstration" && return 0
             return 1
             ;;
         has_discussion)
@@ -1319,23 +1392,47 @@ check_criterion() {
             ;;
         has_conclusions)
             # For slides - check for conclusions section
-            content_contains "$filepath" "conclusion\|Conclusion" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "conclusion\|Conclusion" && return 0
             return 1
             ;;
         has_problem)
             # For slides - check for problem statement or motivation
-            content_contains "$filepath" "problem\|Problem\|motivation\|Motivation" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "problem\|Problem\|motivation\|Motivation" && return 0
             return 1
             ;;
         has_challenges)
             # For slides - check for challenges or lessons learned section
-            content_contains "$filepath" "challenge\|Challenge\|difficult\|Difficult\|lesson\|Lesson" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "challenge\|Challenge\|difficult\|Difficult\|lesson\|Lesson" && return 0
             return 1
             ;;
         no_template_files)
             # Check that NordlingLab beamer template files have been removed
             # Reference: https://bitbucket.org/nordlinglab/nordlinglab-template-beamer/
-            local dir_name=$(dirname "$filepath")
+            local dir_name
+            # For folder submissions, check inside the folder
+            if [[ -d "$filepath" ]]; then
+                dir_name="$filepath"
+            else
+                dir_name=$(dirname "$filepath")
+            fi
 
             # List of template files that should not be included
             local template_files=(
@@ -1373,13 +1470,30 @@ check_criterion() {
         figure_format)
             # Check if figures exist and are named correctly
             # Expected: YYYY-FamilyName-FirstName-FigureX.{pdf,png,jpg} or folder YYYY-FamilyName-FirstName-Figures/
-            local base_name="${filepath%.*}"
-            local dir_name=$(dirname "$filepath")
-            local base_only=$(basename "$base_name")
+            local check_path="$filepath"
+            local dir_name
+            local base_name
+            local base_only
+
+            # For folder submissions, check inside the folder
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                dir_name="$filepath"
+                base_only=$(basename "$filepath")
+            else
+                dir_name=$(dirname "$filepath")
+                base_name="${filepath%.*}"
+                base_only=$(basename "$base_name")
+            fi
+            [[ -z "$check_path" ]] && return 1
             local figures_folder="${base_only}-Figures"
 
             # Check for figures folder
             if [[ -d "$dir_name/$figures_folder" ]]; then
+                return 0
+            fi
+            # Also check for Figures subfolder inside submission folder
+            if [[ -d "$dir_name" ]] && [[ -d "$dir_name/Figures" ]]; then
                 return 0
             fi
 
@@ -1388,10 +1502,16 @@ check_criterion() {
             if find "$dir_name" -maxdepth 1 -name "${base_only}-Figure*" \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) 2>/dev/null | grep -q .; then
                 return 0
             fi
+            # For folder submissions, also check for any figure files inside
+            if [[ -d "$filepath" ]]; then
+                if find "$filepath" -maxdepth 1 -name "*.pdf" -o -name "*.png" -o -name "*.jpg" 2>/dev/null | grep -q .; then
+                    return 0
+                fi
+            fi
 
             # No figures found - check if the report mentions figures
             # If they mention figures but don't have properly named files, fail
-            if content_contains "$filepath" "Figure\|figure\|Fig\\."; then
+            if content_contains "$check_path" "Figure\|figure\|Fig\\."; then
                 # Report mentions figures - check if any image files exist in the directory
                 if find "$dir_name" -maxdepth 1 \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) ! -name "*.md" 2>/dev/null | grep -q .; then
                     # Has some image files - could be figures (pass with benefit of doubt)
@@ -1594,15 +1714,29 @@ check_criterion() {
             return 1
             ;;
         has_pdf)
-            local dir=$(dirname "$filepath")
-            local base=$(basename "$filepath" .drawio)
+            local check_path="$filepath"
+            # For folder submissions, check inside the folder
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            local dir=$(dirname "$check_path")
+            local base=$(basename "$check_path" .drawio)
             [[ -f "$dir/${base}.pdf" ]] && return 0
+            # Also check for any .pdf file in the folder
+            [[ -d "$filepath" ]] && find "$filepath" -maxdepth 1 -name "*.pdf" -type f 2>/dev/null | grep -q . && return 0
             return 1
             ;;
         pdf_single_page)
             # Check that PDF export has exactly one page
-            local dir=$(dirname "$filepath")
-            local base=$(basename "$filepath" .drawio)
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            local dir=$(dirname "$check_path")
+            local base=$(basename "$check_path" .drawio)
             local pdf_file="$dir/${base}.pdf"
 
             if [[ ! -f "$pdf_file" ]]; then
@@ -1624,35 +1758,83 @@ check_criterion() {
             return 1
             ;;
         uses_uml)
-            content_contains "$filepath" "component\|<<\|stereotype" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "component\|<<\|stereotype" && return 0
             return 1
             ;;
         has_components)
-            content_contains "$filepath" "mxCell\|component\|<<" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "mxCell\|component\|<<" && return 0
             return 1
             ;;
         has_connections)
-            content_contains "$filepath" "edge\|arrow\|flow" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "edge\|arrow\|flow" && return 0
             return 1
             ;;
         uses_beamer)
-            content_contains "$filepath" "documentclass.*beamer\|beamer" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "documentclass.*beamer\|beamer" && return 0
             return 1
             ;;
         uses_169_aspect)
-            content_contains "$filepath" "aspectratio=169\|169" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "aspectratio=169\|169" && return 0
             return 1
             ;;
         uses_nordlinglab_theme)
-            content_contains "$filepath" "NordlingLab169\|NordlingLab" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "NordlingLab169\|NordlingLab" && return 0
             return 1
             ;;
         has_title_slide)
-            content_contains "$filepath" "titlepage\|title" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "titlepage\|title" && return 0
             return 1
             ;;
         has_required_sections)
-            content_contains "$filepath" "section\|begin{frame}" && return 0
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && return 1
+            fi
+            content_contains "$check_path" "section\|begin{frame}" && return 0
             return 1
             ;;
         contains_youtube_url|url_format_valid)
@@ -1837,13 +2019,23 @@ check_criterion() {
             ;;
         has_authors)
             # For group submissions - author(s)/group members/team (with partial credit)
-            if ! content_contains "$filepath" "[Aa]uthors\|[Aa]uthor\|[Gg]roup\|[Mm]embers\|[Tt]eam"; then
+            local check_path="$filepath"
+            # For folder submissions, check the main file inside
+            if [[ -d "$filepath" ]]; then
+                check_path=$(get_effective_filepath "$filepath" "$submission_type")
+                [[ -z "$check_path" ]] && {
+                    CRITERION_SCORE_PCT=0
+                    AUTHOR_SCORE_PENALTIES="no main file found in folder"
+                    return 1
+                }
+            fi
+            if ! content_contains "$check_path" "[Aa]uthors\|[Aa]uthor\|[Gg]roup\|[Mm]embers\|[Tt]eam"; then
                 CRITERION_SCORE_PCT=0
                 AUTHOR_SCORE_PENALTIES="no author info found"
                 return 1
             fi
             local result
-            result=$(calculate_author_score "$filepath" "true")
+            result=$(calculate_author_score "$check_path" "true")
             CRITERION_SCORE_PCT="${result%%|*}"
             AUTHOR_SCORE_PENALTIES="${result#*|}"
             [[ $CRITERION_SCORE_PCT -gt 0 ]] && return 0
@@ -2243,10 +2435,18 @@ find_group_submissions() {
             find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | sort
             ;;
         system-design)
-            find "$folder_path" -maxdepth 1 -name "${year}-*.drawio" -type f 2>/dev/null | sort
+            # Find .drawio files AND folders (some groups submit folders instead of files)
+            {
+                find "$folder_path" -maxdepth 1 -name "${year}-*.drawio" -type f 2>/dev/null
+                find "$folder_path" -maxdepth 1 -type d -name "${year}-*" 2>/dev/null
+            } | sort -u
             ;;
         slides)
-            find "$folder_path" -maxdepth 1 -name "${year}-*.tex" -type f 2>/dev/null | sort
+            # Find .tex files AND folders (some groups submit folders instead of files)
+            {
+                find "$folder_path" -maxdepth 1 -name "${year}-*.tex" -type f 2>/dev/null
+                find "$folder_path" -maxdepth 1 -type d -name "${year}-*" 2>/dev/null
+            } | sort -u
             ;;
         video)
             find "$folder_path" -maxdepth 1 -name "${year}-*.txt" -type f 2>/dev/null | sort
