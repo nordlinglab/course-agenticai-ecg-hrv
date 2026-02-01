@@ -2729,8 +2729,23 @@ declare -A CSV_DATA
 declare -A PREVIOUS_CSV_DATA
 
 # Store student to group membership mapping
-# Format: STUDENT_GROUP_MEMBERSHIP[normalized_family_name] = "Group Members String"
+# Format: STUDENT_GROUP_MEMBERSHIP[normalized_family_name] = "group1,group2,..." (comma-separated list)
 declare -A STUDENT_GROUP_MEMBERSHIP
+
+# Store full name to group mapping (more precise than family name)
+# Format: STUDENT_FULL_NAME_TO_GROUP[normalized_full_name] = "Group Members String"
+declare -A STUDENT_FULL_NAME_TO_GROUP
+
+# Normalize a name for comparison: lowercase, remove hyphens/commas, collapse spaces
+normalize_name() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | tr -d ',-' | tr -s ' '
+}
+
+# Extract first name from a full name (everything after the first space)
+extract_first_name() {
+    local full_name="$1"
+    echo "${full_name#* }"  # Remove up to first space
+}
 
 # Register all members of a group for later lookup
 # group_members_str: space-separated family names (e.g., "Chen Liu Wang")
@@ -2746,21 +2761,190 @@ register_group_membership() {
         fi
         # Normalize to lowercase for consistent lookup
         local normalized=$(echo "$member" | tr '[:upper:]' '[:lower:]')
-        STUDENT_GROUP_MEMBERSHIP[$normalized]="$group_members_str"
+        # Append to list of groups (comma-separated) instead of overwriting
+        if [[ -n "${STUDENT_GROUP_MEMBERSHIP[$normalized]:-}" ]]; then
+            # Check if this group is already in the list to avoid duplicates
+            if [[ ",${STUDENT_GROUP_MEMBERSHIP[$normalized]}," != *",$group_members_str,"* ]]; then
+                STUDENT_GROUP_MEMBERSHIP[$normalized]="${STUDENT_GROUP_MEMBERSHIP[$normalized]},$group_members_str"
+            fi
+        else
+            STUDENT_GROUP_MEMBERSHIP[$normalized]="$group_members_str"
+        fi
     done
 }
 
-# Check if a student (by family name) is a member of a specific group
-# Returns 0 if member, 1 if not
-is_group_member() {
-    local student_family="$1"
+# Register a full name to group mapping (from case brief parsing)
+# full_name: e.g., "Chen GuoZhu" or "Liu YungHsin"
+# group_members_str: e.g., "Chen Chen Liu"
+register_full_name_membership() {
+    local full_name="$1"
+    local group_members_str="$2"
+    local normalized=$(normalize_name "$full_name")
+    STUDENT_FULL_NAME_TO_GROUP[$normalized]="$group_members_str"
+}
+
+# Parse a group case brief to extract member full names
+# brief_file: path to the case brief file
+# group_members_str: the group name (e.g., "Chen Chen Liu")
+parse_case_brief_members() {
+    local brief_file="$1"
     local group_members_str="$2"
 
-    local normalized=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
-    local stored_group="${STUDENT_GROUP_MEMBERSHIP[$normalized]:-}"
+    [[ ! -f "$brief_file" ]] && return
 
-    # Check if the student's stored group matches the given group
-    [[ "$stored_group" == "$group_members_str" ]] && return 0
+    # Look for Author/Authors/Members lines
+    local author_line
+    author_line=$(grep -iE "^\*?\*?(Author|Authors|Members)\*?\*?:" "$brief_file" | head -1)
+    [[ -z "$author_line" ]] && return
+
+    # Extract the part after the colon
+    local members_part="${author_line#*:}"
+    # Remove markdown formatting
+    members_part="${members_part//\*\*/}"
+    members_part="${members_part//\*/}"
+    # Remove 2026- prefix
+    members_part="${members_part//2026-/}"
+    # Remove parenthetical notes like "(Andrew)" or "(Wei JungYing, ...)"
+    members_part=$(echo "$members_part" | sed 's/([^)]*)//g')
+    # Trim leading/trailing whitespace
+    members_part="${members_part#"${members_part%%[![:space:]]*}"}"
+    members_part="${members_part%"${members_part##*[![:space:]]}"}"
+
+    # Split by ", " (comma followed by space) to handle names with internal commas like "LIN,CHIH-YI"
+    # First replace " , " with ", " (normalize spacing around separator commas)
+    members_part="${members_part// , /, }"
+
+    local -a member_parts
+    # Use ", " as separator (comma with trailing space)
+    member_parts=("${(@s:, :)members_part}")
+
+    local member normalized_member
+    for member in "${member_parts[@]}"; do
+        # Trim whitespace
+        member="${member#"${member%%[![:space:]]*}"}"
+        member="${member%"${member##*[![:space:]]}"}"
+        [[ -z "$member" ]] && continue
+
+        # Normalize the name to "Family First" format
+        normalized_member=""
+
+        # Handle "LASTNAME,FIRSTNAME" format (e.g., "LIN,CHIH-YI")
+        if [[ "$member" == *,* && "$member" != *" "* ]]; then
+            local family="${member%%,*}"
+            local first="${member#*,}"
+            # Remove hyphens from first name
+            first="${first//-/}"
+            # Proper case
+            family="${(C)${(L)family}}"
+            first="${(C)${(L)first}}"
+            normalized_member="$family $first"
+        # Handle "FirstName LastName" format (e.g., "Cheng-Yu Fan", "Chen Wei")
+        elif [[ "$member" == *" "* ]]; then
+            local -a words
+            words=(${(s: :)member})
+            if [[ ${#words[@]} -ge 2 ]]; then
+                local last_word="${words[-1]}"
+                local first_parts="${member% *}"
+                # Remove hyphens from first name
+                first_parts="${first_parts//-/}"
+                # Proper case
+                last_word="${(C)${(L)last_word}}"
+                first_parts="${(C)${(L)first_parts}}"
+                normalized_member="$last_word $first_parts"
+            fi
+        # Handle "Family-FirstName" format (e.g., "Chen-GuoZhu")
+        elif [[ "$member" == *-* ]]; then
+            local no_hyphen="${member//-/ }"
+            local -a parts
+            parts=(${(s: :)no_hyphen})
+            if [[ ${#parts[@]} -ge 2 ]]; then
+                local family="${parts[1]}"
+                # Join all parts after family name using array slicing
+                local first="${(j::)parts[2,-1]}"
+                family="${(C)${(L)family}}"
+                first="${(C)${(L)first}}"
+                normalized_member="$family $first"
+            fi
+        fi
+
+        # Register the mapping if we got a valid normalized name
+        if [[ -n "$normalized_member" && "$normalized_member" == *" "* ]]; then
+            register_full_name_membership "$normalized_member" "$group_members_str"
+        fi
+    done
+}
+
+# Load group membership from case briefs (for accurate full-name matching)
+# base_dir: base directory containing case-brief-individual folder
+# year: the year prefix (e.g., "2026")
+load_case_brief_memberships() {
+    local base_dir="$1"
+    local year="$2"
+    local case_brief_dir="$base_dir/case-brief-individual"
+
+    [[ ! -d "$case_brief_dir" ]] && return
+
+    # Find group case briefs (those with 3+ family names, i.e., dashes indicate group)
+    for brief_file in "$case_brief_dir"/${year}-*-*-*.md; do
+        [[ ! -f "$brief_file" ]] && continue
+
+        local filename=$(basename "$brief_file" .md)
+        local name_part="${filename#${year}-}"
+
+        # Convert to group format (dashes to spaces)
+        local group_name="${name_part//-/ }"
+
+        # Strip known suffixes (like "code", "data", etc.)
+        group_name=$(strip_submission_suffixes "$group_name")
+
+        # Parse the case brief to extract member names
+        parse_case_brief_members "$brief_file" "$group_name"
+    done
+}
+
+# Check if a student is a member of a specific group
+# student_full_name: the student's full canonical name (e.g., "Chen GuoZhu")
+# group_members_str: the group (e.g., "Chen Chen Liu")
+# Returns 0 if member, 1 if not
+is_group_member() {
+    local student_full_name="$1"
+    local group_members_str="$2"
+
+    # First, try exact full name match (most accurate)
+    local normalized_full=$(normalize_name "$student_full_name")
+    local stored_group="${STUDENT_FULL_NAME_TO_GROUP[$normalized_full]:-}"
+    if [[ -n "$stored_group" ]]; then
+        [[ "$stored_group" == "$group_members_str" ]] && return 0
+        return 1
+    fi
+
+    # Fall back to family name matching
+    local student_family="${student_full_name%% *}"
+    local normalized=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
+    local stored_groups="${STUDENT_GROUP_MEMBERSHIP[$normalized]:-}"
+
+    # Check if this group is in the comma-separated list
+    if [[ -n "$stored_groups" ]]; then
+        local IFS=','
+        local -a groups_array
+        groups_array=(${(s:,:)stored_groups})
+        for group in "${groups_array[@]}"; do
+            if [[ "$group" == "$group_members_str" ]]; then
+                return 0
+            fi
+        done
+    fi
+
+    # As last resort, check if family name appears as a word in the group
+    local group_lower=$(echo "$group_members_str" | tr '[:upper:]' '[:lower:]')
+    local -a group_words
+    group_words=(${(s: :)group_lower})
+    for word in "${group_words[@]}"; do
+        if [[ "$word" == "$normalized" ]]; then
+            return 0
+        fi
+    done
+
     return 1
 }
 
@@ -3106,6 +3290,14 @@ evaluate_individual_submissions() {
         echo ""
     fi
 
+    # Load full name mappings from case briefs (for accurate member matching)
+    if [[ ${#STUDENT_FULL_NAME_TO_GROUP[@]} -eq 0 ]]; then
+        echo "Loading full name mappings from case briefs..."
+        load_case_brief_memberships "$BASE_DIR" "$year"
+        echo "  Loaded ${#STUDENT_FULL_NAME_TO_GROUP[@]} full name mappings"
+        echo ""
+    fi
+
     # Build header - add Inconsistent_name column after Student Name
     local header="Student Name,Inconsistent_name"
     for sub in "${INDIVIDUAL_SUBMISSIONS[@]}"; do
@@ -3232,10 +3424,9 @@ evaluate_individual_submissions() {
                 # Assign only to students who are actual members of this group
                 for norm_key in ${(k)found_students}; do
                     canonical_name="${student_canonical_name[$norm_key]}"
-                    student_family="${canonical_name%% *}"
 
-                    # Use is_group_member to check actual membership
-                    if is_group_member "$student_family" "$group_members"; then
+                    # Use is_group_member with full name for accurate matching
+                    if is_group_member "$canonical_name" "$group_members"; then
                         update_csv_value "$canonical_name" "$sub" "$score"
                         update_csv_value "$canonical_name" "${sub}_notes" "$notes"
                         student_groups[$canonical_name]=$group_members
