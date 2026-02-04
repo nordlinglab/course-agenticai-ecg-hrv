@@ -211,6 +211,75 @@ test_invalid_submission_type() {
 }
 
 # ============================================================================
+# UNIT TESTS: Levenshtein Distance
+# ============================================================================
+
+test_levenshtein_exact_match() {
+    # Exact match should return 0
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    local dist=$(levenshtein_distance "lee" "lee")
+    assert_equals "0" "$dist" "Exact match 'lee' vs 'lee' should return 0"
+}
+
+test_levenshtein_empty_strings() {
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    local dist1=$(levenshtein_distance "" "abc")
+    local dist2=$(levenshtein_distance "abc" "")
+    assert_equals "3" "$dist1" "Empty vs 'abc' should return 3"
+    assert_equals "3" "$dist2" "'abc' vs empty should return 3"
+}
+
+test_levenshtein_single_char_diff() {
+    # One character different, same length
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    local dist=$(levenshtein_distance "cat" "bat")
+    assert_equals "1" "$dist" "'cat' vs 'bat' should return 1"
+}
+
+test_levenshtein_different_lengths() {
+    # Different lengths by more than 1 should return len_diff directly
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    local dist=$(levenshtein_distance "ab" "abcde")
+    assert_equals "3" "$dist" "'ab' vs 'abcde' should return 3"
+}
+
+test_levenshtein_completely_different() {
+    # Key regression test: "po" vs "fan" must return a numeric value (not empty)
+    # under set -eo pipefail. Previously ((diff++)) caused silent failure when
+    # the pre-increment value was 0.
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    local dist=$(levenshtein_distance "po" "fan")
+    assert_equals "3" "$dist" "'po' vs 'fan' should return 3 (not empty)"
+}
+
+test_levenshtein_returns_numeric() {
+    # Verify all results are non-empty numeric values (regression for set -eo pipefail bug)
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+
+    local pairs=("po:fan" "po:lee" "wu:fan" "wu:liu")
+    local pair s1 s2 dist
+    local all_numeric=true
+    for pair in "${pairs[@]}"; do
+        s1="${pair%%:*}"
+        s2="${pair#*:}"
+        dist=$(levenshtein_distance "$s1" "$s2")
+        if [[ -z "$dist" || ! "$dist" =~ ^[0-9]+$ ]]; then
+            all_numeric=false
+            break
+        fi
+    done
+
+    ((TESTS_RUN++))
+    if $all_numeric; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: All levenshtein results are non-empty numeric values"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: levenshtein_distance returned empty or non-numeric for '$s1' vs '$s2': [$dist]"
+    fi
+}
+
+# ============================================================================
 # UNIT TESTS: SSH Key Validation
 # ============================================================================
 
@@ -1257,6 +1326,14 @@ run_all_tests() {
     run_test test_criteria_flag_specific
     run_test test_logic_flag
     run_test test_invalid_submission_type
+
+    # Levenshtein distance
+    run_test test_levenshtein_exact_match
+    run_test test_levenshtein_empty_strings
+    run_test test_levenshtein_single_char_diff
+    run_test test_levenshtein_different_lengths
+    run_test test_levenshtein_completely_different
+    run_test test_levenshtein_returns_numeric
 
     # SSH key validation
     run_test test_valid_ssh_ed25519_key
