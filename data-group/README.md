@@ -6,7 +6,7 @@ This folder contains group data submissions used for training, testing, and demo
 
 ### Folder Format
 - **Format:** Folder containing data files and documentation
-- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` (alphabetical order, ASCII only)
+- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` or `YYYY-FamilyName1-FamilyName2-FamilyName3-data/` (alphabetical order, ASCII only)
 - **Required:** `README.md` explaining the data
 - **License:** Include license declaration (CC-BY-4.0 for data, or specify data source license)
 
@@ -38,7 +38,7 @@ Your data submission must include:
 
 ### README.md Documentation
 
-Your data README must specify:
+Your data `README.md` must specify:
 
 | Field | Description |
 |-------|-------------|
@@ -257,7 +257,7 @@ For HRV/ECG analysis projects, consider these publicly available datasets:
 
 Before submitting, verify:
 
-- [ ] Folder named correctly: `YYYY-Name1-Name2-Name3/` (alphabetical)
+- [ ] Folder named correctly: `YYYY-FamilyName1-FamilyName2-FamilyName3/` or `YYYY-FamilyName1-FamilyName2-FamilyName3-data/` (alphabetical)
 - [ ] Only ASCII characters in folder and file names
 - [ ] `README.md` present with complete documentation
 - [ ] License declaration included

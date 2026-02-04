@@ -327,11 +327,14 @@ levenshtein_distance() {
 
     # Simple character-by-character comparison for short strings
     local i diff=0
+    local c1 c2
     local max_len=$((len1 > len2 ? len1 : len2))
     for ((i=0; i<max_len; i++)); do
-        local c1="${s1:$i:1}"
-        local c2="${s2:$i:1}"
-        [[ "$c1" != "$c2" ]] && ((diff++))
+        c1="${s1:$i:1}"
+        c2="${s2:$i:1}"
+        if [[ "$c1" != "$c2" ]]; then
+            diff=$((diff + 1))
+        fi
     done
     echo $diff
 }
@@ -2689,7 +2692,7 @@ count_all_submissions() {
 initialize_group_csv() {
     local csvfile="$1"
 
-    local header="Group Members"
+    local header="Group ID,Group Members"
     for sub in "${GROUP_SUBMISSIONS[@]}"; do
         header="$header,$sub"
     done
@@ -2733,18 +2736,112 @@ declare -A PREVIOUS_CSV_DATA
 declare -A STUDENT_GROUP_MEMBERSHIP
 
 # Store full name to group mapping (more precise than family name)
-# Format: STUDENT_FULL_NAME_TO_GROUP[normalized_full_name] = "Group Members String"
+# Format: STUDENT_FULL_NAME_TO_GROUP[normalized_full_name] = "Group ID" (e.g., "2026-Chen-Chen-Liu")
 declare -A STUDENT_FULL_NAME_TO_GROUP
+
+# Store group full member names
+# Format: GROUP_FULL_MEMBERS[group_id] = "Name1 & Name2 & Name3"
+declare -A GROUP_FULL_MEMBERS
+
+# Store group ID for each student (individual)
+# Format: STUDENT_GROUP_ID[normalized_full_name] = "Group ID"
+declare -A STUDENT_GROUP_ID
+
+# Track students assigned during group loading (to prevent duplicates)
+# Format: ASSIGNED_STUDENTS[normalized_name] = "group_id"
+declare -A ASSIGNED_STUDENTS
 
 # Normalize a name for comparison: lowercase, remove hyphens/commas, collapse spaces
 normalize_name() {
     echo "$1" | tr '[:upper:]' '[:lower:]' | tr -d ',-' | tr -s ' '
 }
 
+# Normalize a group key to Group ID format: YYYY-Family1-Family2-...
+# group_key: space-separated family names (e.g., "Chen Chen Liu")
+# year: the year (e.g., "2026")
+normalize_group_id() {
+    local group_key="$1"
+    local year="$2"
+    # Replace spaces with dashes and ensure proper capitalization
+    local normalized="${group_key// /-}"
+    echo "${year}-${normalized}"
+}
+
 # Extract first name from a full name (everything after the first space)
 extract_first_name() {
     local full_name="$1"
     echo "${full_name#* }"  # Remove up to first space
+}
+
+# Fuzzy match two strings with tolerance up to max_distance characters different
+# Returns 0 if match, 1 if no match
+fuzzy_match() {
+    local str1="$1"
+    local str2="$2"
+    local max_distance="${3:-2}"
+
+    # Normalize both strings: lowercase
+    local s1="${(L)str1}"
+    local s2="${(L)str2}"
+
+    # Exact match first
+    [[ "$s1" == "$s2" ]] && return 0
+
+    # Use levenshtein_distance for fuzzy match
+    local dist=$(levenshtein_distance "$s1" "$s2")
+    [[ $dist -le $max_distance ]] && return 0
+
+    return 1
+}
+
+# Find a group by ID with fuzzy matching
+# Returns the canonical group ID if found, empty if not
+find_group_fuzzy() {
+    local search_id="$1"
+    local year="$2"
+
+    # Normalize search term
+    local search_norm="${(L)search_id}"
+    search_norm="${search_norm//-/ }"  # Convert dashes to spaces for comparison
+
+    # First try exact match against STUDENT_GROUP_MEMBERSHIP keys (which are family names)
+    # Check all registered groups
+    local -a all_groups
+    all_groups=()
+    local family group_list
+    for family in ${(k)STUDENT_GROUP_MEMBERSHIP}; do
+        local IFS=','
+        for group in ${(s:,:)STUDENT_GROUP_MEMBERSHIP[$family]}; do
+            # Add to array if not already present
+            if [[ ! " ${all_groups[*]} " == *" $group "* ]]; then
+                all_groups+=("$group")
+            fi
+        done
+    done
+
+    # Check each group for match
+    local group group_norm group_id
+    for group in "${all_groups[@]}"; do
+        group_norm="${(L)group}"
+        group_id=$(normalize_group_id "$group" "$year")
+
+        # Exact match
+        if [[ "$search_norm" == "$group_norm" ]] || [[ "${(L)search_id}" == "${(L)group_id}" ]]; then
+            echo "$group_id"
+            return 0
+        fi
+    done
+
+    # Fuzzy match (up to 2 char difference)
+    for group in "${all_groups[@]}"; do
+        group_norm="${(L)group}"
+        if fuzzy_match "$search_norm" "$group_norm" 2; then
+            echo "$(normalize_group_id "$group" "$year")"
+            return 0
+        fi
+    done
+
+    return 1
 }
 
 # Register all members of a group for later lookup
@@ -2773,28 +2870,16 @@ register_group_membership() {
     done
 }
 
-# Register a full name to group mapping (from case brief parsing)
-# full_name: e.g., "Chen GuoZhu" or "Liu YungHsin"
-# group_members_str: e.g., "Chen Chen Liu"
-register_full_name_membership() {
-    local full_name="$1"
-    local group_members_str="$2"
-    local normalized=$(normalize_name "$full_name")
-    STUDENT_FULL_NAME_TO_GROUP[$normalized]="$group_members_str"
-}
+# Parse author info from a file (README.md or markdown file)
+# Returns extracted full names or empty if not found
+parse_author_from_file() {
+    local filepath="$1"
 
-# Parse a group case brief to extract member full names
-# brief_file: path to the case brief file
-# group_members_str: the group name (e.g., "Chen Chen Liu")
-parse_case_brief_members() {
-    local brief_file="$1"
-    local group_members_str="$2"
+    [[ ! -f "$filepath" ]] && return
 
-    [[ ! -f "$brief_file" ]] && return
-
-    # Look for Author/Authors/Members lines
+    # Look for Author/Authors/Members lines in first 30 lines
     local author_line
-    author_line=$(grep -iE "^\*?\*?(Author|Authors|Members)\*?\*?:" "$brief_file" | head -1)
+    author_line=$(head -30 "$filepath" | grep -iE "^\*?\*?(Author|Authors|Members)\*?\*?:" | head -1 || true)
     [[ -z "$author_line" ]] && return
 
     # Extract the part after the colon
@@ -2804,101 +2889,386 @@ parse_case_brief_members() {
     members_part="${members_part//\*/}"
     # Remove 2026- prefix
     members_part="${members_part//2026-/}"
-    # Remove parenthetical notes like "(Andrew)" or "(Wei JungYing, ...)"
+    # Remove parenthetical notes
     members_part=$(echo "$members_part" | sed 's/([^)]*)//g')
-    # Trim leading/trailing whitespace
+    # Trim whitespace
     members_part="${members_part#"${members_part%%[![:space:]]*}"}"
     members_part="${members_part%"${members_part##*[![:space:]]}"}"
 
-    # Split by ", " (comma followed by space) to handle names with internal commas like "LIN,CHIH-YI"
-    # First replace " , " with ", " (normalize spacing around separator commas)
+    echo "$members_part"
+}
+
+# Load full names for a specific group from all submission types
+# group_key: space-separated family names (e.g., "Chen Chen Liu")
+# year: the year (e.g., "2026")
+# base_dir: base directory
+load_group_full_names() {
+    local group_key="$1"
+    local year="$2"
+    local base_dir="$3"
+
+    local group_id=$(normalize_group_id "$group_key" "$year")
+    local group_dashed="${group_key// /-}"
+    local members_found=""
+    local -a full_names
+    full_names=()
+
+    # List of submission types and their directories/patterns
+    # Format: "dir_name:pattern:is_folder"
+    local -a search_locations
+    search_locations=(
+        "case-brief-individual:${year}-${group_dashed}*.md:file"
+        "data-group:${year}-${group_dashed}*:folder"
+        "project-code-group:${year}-${group_dashed}*:folder"
+        "tests-group:${year}-${group_dashed}*.md:file"
+        "reflection-group:${year}-${group_dashed}*.md:file"
+    )
+
+    local location dir pattern type filepath author_info
+    for location in "${search_locations[@]}"; do
+        dir="${location%%:*}"
+        local rest="${location#*:}"
+        pattern="${rest%%:*}"
+        type="${rest##*:}"
+
+        local search_dir="$base_dir/$dir"
+        [[ ! -d "$search_dir" ]] && continue
+
+        [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "      Searching $dir with pattern $pattern"
+        # Find matching files/folders (N: null glob - no error if no matches)
+        for filepath in "$search_dir"/$~pattern(N); do
+            [[ ! -e "$filepath" ]] && continue
+
+            [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Found: $filepath"
+
+            # Strip tags from the path to verify it's the right group
+            local basename_clean=$(basename "$filepath")
+            basename_clean="${basename_clean%.*}"  # Remove extension
+            basename_clean="${basename_clean#${year}-}"  # Remove year prefix
+            basename_clean=$(strip_submission_suffixes "$basename_clean")
+
+            # Fuzzy match to verify it's the right group
+            if ! fuzzy_match "${basename_clean//-/ }" "$group_key" 2; then
+                [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Skipped (fuzzy mismatch)"
+                continue
+            fi
+
+            # Determine which file to parse
+            local file_to_parse=""
+            if [[ "$type" == "folder" ]]; then
+                file_to_parse="$filepath/README.md"
+            else
+                file_to_parse="$filepath"
+            fi
+
+            [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Parsing: $file_to_parse"
+            author_info=$(parse_author_from_file "$file_to_parse")
+            [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Author info: ${author_info:-<none>}"
+
+            # If we got author info with full names (contains spaces), use it
+            if [[ -n "$author_info" && "$author_info" == *" "* ]]; then
+                members_found="$author_info"
+                break 2  # Exit both loops - we found good data
+            fi
+        done
+    done
+    [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "      Done searching group submissions"
+
+    # If no full names found from group submissions, try to match from individual filenames
+    if [[ -z "$members_found" || "$members_found" != *" "* ]]; then
+        [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "      Falling back to individual filename matching"
+        # Build full names from individual submission filenames that match group family names
+        local -a group_families
+        group_families=(${(s: :)group_key})
+
+        local ind_dir="$base_dir/report-individual"
+        [[ ! -d "$ind_dir" ]] && ind_dir="$base_dir/case-brief-individual"
+
+        if [[ -d "$ind_dir" ]]; then
+            local ind_file family ind_name
+            for ind_file in "$ind_dir"/${year}-*.md(N); do
+                [[ ! -f "$ind_file" ]] && continue
+
+                local ind_basename=$(basename "$ind_file" .md)
+                ind_basename="${ind_basename#${year}-}"
+
+                # Strip known suffixes before checking dash count
+                ind_basename="${ind_basename%-report}"
+                ind_basename="${ind_basename%-brief}"
+
+                # Skip group case briefs (those with multiple dashes after stripping suffixes)
+                local dash_count="${ind_basename//[^-]/}"
+                [[ ${#dash_count} -ge 2 ]] && continue
+
+                # Extract family name (first part before dash)
+                local ind_family="${ind_basename%%-*}"
+                local ind_first="${ind_basename#*-}"
+                ind_first="${ind_first//-/}"  # Remove any remaining dashes
+
+                # Check if this family name is in the group
+                # Use exact match for short names (<=3 chars) to avoid false positives like Lin/Liu
+                for family in "${group_families[@]}"; do
+                    local match=false
+                    if [[ ${#ind_family} -le 3 || ${#family} -le 3 ]]; then
+                        # Exact match for short names (case-insensitive)
+                        [[ "${(L)ind_family}" == "${(L)family}" ]] && match=true
+                    else
+                        # Fuzzy match for longer names
+                        fuzzy_match "$ind_family" "$family" 1 && match=true
+                    fi
+
+                    if $match; then
+                        # Found a match - check if already assigned to another group
+                        local full_name="${(C)ind_family} ${(C)ind_first}"
+                        local norm_key=$(normalize_name "$full_name")
+
+                        # Skip if already assigned to a different group
+                        if [[ -n "${ASSIGNED_STUDENTS[$norm_key]:-}" && "${ASSIGNED_STUDENTS[$norm_key]}" != "$group_id" ]]; then
+                            [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Skipping $full_name (already in ${ASSIGNED_STUDENTS[$norm_key]})"
+                            break
+                        fi
+
+                        full_names+=("$full_name")
+                        break
+                    fi
+                done
+            done
+        fi
+
+        # Convert array to & separated string
+        if [[ ${#full_names[@]} -gt 0 ]]; then
+            members_found="${(j: & :)full_names}"
+        fi
+        [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "      Individual matching found: ${members_found:-<none>}"
+    fi
+
+    [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "      Final members: ${members_found:-<none>}"
+    # Parse and register the full names
+    if [[ -n "$members_found" ]]; then
+        # Parse, reorder to Family-First format, and register
+        # This will use group family names to properly detect and reorder names
+        parse_case_brief_members_with_group_id "$members_found" "$group_key" "$group_id"
+
+        # Show members found (after parsing/reordering)
+        local final_members="${GROUP_FULL_MEMBERS[$group_id]:-$members_found}"
+        echo "        Members: $final_members"
+    else
+        echo "        Members: (none found, using folder names)"
+    fi
+}
+
+# Capitalize a hyphenated name properly (e.g., "cheng-yu" -> "Cheng-Yu")
+capitalize_hyphenated() {
+    local name="$1"
+    local result=""
+    local part
+    local first=true
+
+    # Handle names with hyphens (split and capitalize each part)
+    if [[ "$name" == *-* ]]; then
+        local -a parts
+        parts=(${(s:-:)name})
+        for part in "${parts[@]}"; do
+            part="${(C)${(L)part}}"
+            if $first; then
+                result="$part"
+                first=false
+            else
+                result="${result}-${part}"
+            fi
+        done
+        echo "$result"
+    else
+        echo "${(C)${(L)name}}"
+    fi
+}
+
+# Reorder a name to "Family Given" format using group family names as guidance
+# Arguments:
+#   $1: name - the full name to reorder (e.g., "Cheng-Yu Fan" or "Po Lin Lee")
+#   $2: group_families - space-separated family names from group (e.g., "Fan Lee Liu")
+# Returns: reordered name in "Family Given" format, preserving hyphens in given names
+reorder_name_to_family_first() {
+    local name="$1"
+    local group_families="$2"
+
+    # Split group families into array (lowercase for comparison)
+    local -a family_list
+    family_list=(${(s: :)group_families})
+
+    # Handle hyphenated names: "Cheng-Yu Fan" -> parts are "Cheng-Yu" and "Fan"
+    # Also handle space-separated: "Po Lin Lee" -> parts are "Po", "Lin", "Lee"
+    local -a name_parts
+    name_parts=(${(s: :)name})
+    local num_parts=${#name_parts[@]}
+
+    [[ $num_parts -eq 0 ]] && echo "$name" && return
+    [[ $num_parts -eq 1 ]] && echo "$name" && return
+
+    # Find which part is the family name by matching against group family names
+    local found_family="" found_family_idx=0
+    local i=0 part="" part_base="" part_lower="" fam="" fam_lower=""
+
+    for ((i=1; i<=num_parts; i++)); do
+        part="${name_parts[$i]}"
+        # For hyphenated parts like "Cheng-Yu", use the whole part for family comparison
+        # (some family names might be hyphenated)
+        part_base="${part%%-*}"
+        part_lower="${(L)part_base}"
+
+        # Check if this part matches a family name
+        for fam in "${family_list[@]}"; do
+            fam_lower="${(L)fam}"
+            if [[ "$part_lower" == "$fam_lower" ]]; then
+                found_family="$part"
+                found_family_idx=$i
+                break 2
+            fi
+            # Fuzzy match (1 char difference)
+            local dist=$(levenshtein_distance "$part_lower" "$fam_lower")
+            if [[ $dist -le 1 ]]; then
+                found_family="$part"
+                found_family_idx=$i
+                break 2
+            fi
+        done
+    done
+
+    local family_cap="" given_cap="" given_joined=""
+
+    if [[ -n "$found_family" && $found_family_idx -gt 0 ]]; then
+        # Build given name from all other parts, preserving hyphens
+        given_joined=""
+        for ((i=1; i<=num_parts; i++)); do
+            if [[ $i -ne $found_family_idx ]]; then
+                given_joined="${given_joined}${name_parts[$i]}"
+            fi
+        done
+
+        # Normalize capitalization
+        family_cap=$(capitalize_hyphenated "$found_family")
+        given_cap=$(capitalize_hyphenated "$given_joined")
+    else
+        # No family match found - assume last part is family (Western convention in source)
+        # or first part is family (East Asian convention) - we assume last for Western format input
+        family_cap=$(capitalize_hyphenated "${name_parts[$num_parts]}")
+        given_joined=""
+        for ((i=1; i<num_parts; i++)); do
+            given_joined="${given_joined}${name_parts[$i]}"
+        done
+        given_cap=$(capitalize_hyphenated "$given_joined")
+    fi
+
+    echo "$family_cap $given_cap"
+}
+
+# Parse member names and register with group ID
+parse_case_brief_members_with_group_id() {
+    local members_part="$1"
+    local group_key="$2"
+    local group_id="$3"
+
+    # Normalize separators: handle ", " and " , " and ";" and " & "
     members_part="${members_part// , /, }"
+    members_part="${members_part//;/, }"
+    members_part="${members_part// & /, }"
 
     local -a member_parts
-    # Use ", " as separator (comma with trailing space)
     member_parts=("${(@s:, :)members_part}")
 
-    local member normalized_member
+    local -a collected_names
+    collected_names=()
+
+    local member="" normalized_member="" family="" first="" given="" before="" after=""
+
     for member in "${member_parts[@]}"; do
         # Trim whitespace
         member="${member#"${member%%[![:space:]]*}"}"
         member="${member%"${member##*[![:space:]]}"}"
         [[ -z "$member" ]] && continue
 
-        # Normalize the name to "Family First" format
         normalized_member=""
 
-        # Handle "LASTNAME,FIRSTNAME" format (e.g., "LIN,CHIH-YI")
+        # Handle "LASTNAME,FIRSTNAME" format (e.g., "Fan,ChengYu")
         if [[ "$member" == *,* && "$member" != *" "* ]]; then
-            local family="${member%%,*}"
-            local first="${member#*,}"
-            # Remove hyphens from first name
-            first="${first//-/}"
-            # Proper case
-            family="${(C)${(L)family}}"
-            first="${(C)${(L)first}}"
+            family="${member%%,*}"
+            first="${member#*,}"
+            family=$(capitalize_hyphenated "$family")
+            first=$(capitalize_hyphenated "$first")
             normalized_member="$family $first"
-        # Handle "FirstName LastName" format (e.g., "Cheng-Yu Fan", "Chen Wei")
+        # Handle space-separated format (e.g., "Cheng-Yu Fan" or "Po Lin Lee")
         elif [[ "$member" == *" "* ]]; then
-            local -a words
-            words=(${(s: :)member})
-            if [[ ${#words[@]} -ge 2 ]]; then
-                local last_word="${words[-1]}"
-                local first_parts="${member% *}"
-                # Remove hyphens from first name
-                first_parts="${first_parts//-/}"
-                # Proper case
-                last_word="${(C)${(L)last_word}}"
-                first_parts="${(C)${(L)first_parts}}"
-                normalized_member="$last_word $first_parts"
-            fi
-        # Handle "Family-FirstName" format (e.g., "Chen-GuoZhu")
+            # Reorder using group family names as guidance
+            normalized_member=$(reorder_name_to_family_first "$member" "$group_key")
+        # Handle hyphenated format without spaces (e.g., "Fan-ChengYu")
         elif [[ "$member" == *-* ]]; then
-            local no_hyphen="${member//-/ }"
-            local -a parts
-            parts=(${(s: :)no_hyphen})
-            if [[ ${#parts[@]} -ge 2 ]]; then
-                local family="${parts[1]}"
-                # Join all parts after family name using array slicing
-                local first="${(j::)parts[2,-1]}"
-                family="${(C)${(L)family}}"
-                first="${(C)${(L)first}}"
-                normalized_member="$family $first"
-            fi
+            # First hyphen separates family from given
+            family="${member%%-*}"
+            given="${member#*-}"
+            family=$(capitalize_hyphenated "$family")
+            given=$(capitalize_hyphenated "$given")
+            normalized_member="$family $given"
         fi
 
-        # Register the mapping if we got a valid normalized name
         if [[ -n "$normalized_member" && "$normalized_member" == *" "* ]]; then
-            register_full_name_membership "$normalized_member" "$group_members_str"
+            # Check if already assigned to a different group
+            local norm_key=$(normalize_name "$normalized_member")
+            if [[ -n "${ASSIGNED_STUDENTS[$norm_key]:-}" && "${ASSIGNED_STUDENTS[$norm_key]}" != "$group_id" ]]; then
+                [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Skipping $normalized_member (already in ${ASSIGNED_STUDENTS[$norm_key]})"
+                continue
+            fi
+
+            collected_names+=("$normalized_member")
+
+            # Register mappings
+            STUDENT_FULL_NAME_TO_GROUP[$norm_key]="$group_key"
+            STUDENT_GROUP_ID[$norm_key]="$group_id"
+            ASSIGNED_STUDENTS[$norm_key]="$group_id"
         fi
     done
+
+    # Sort collected names alphabetically by the full name (family first ensures family-based sort)
+    if [[ ${#collected_names[@]} -gt 0 ]]; then
+        # Use a newline-based sort to preserve full names with spaces
+        local sorted_str
+        sorted_str=$(printf '%s\n' "${collected_names[@]}" | sort)
+        # Read back into array, preserving lines
+        local -a sorted_names
+        sorted_names=("${(@f)sorted_str}")
+        GROUP_FULL_MEMBERS[$group_id]="${(j: & :)sorted_names}"
+    fi
 }
 
-# Load group membership from case briefs (for accurate full-name matching)
-# base_dir: base directory containing case-brief-individual folder
+# Load group membership from all sources (comprehensive)
+# Iterates through all groups in STUDENT_GROUP_MEMBERSHIP and finds full names
+# base_dir: base directory
 # year: the year prefix (e.g., "2026")
-load_case_brief_memberships() {
+load_all_group_memberships() {
     local base_dir="$1"
     local year="$2"
-    local case_brief_dir="$base_dir/case-brief-individual"
 
-    [[ ! -d "$case_brief_dir" ]] && return
+    # Get unique groups from STUDENT_GROUP_MEMBERSHIP
+    local -a all_groups
+    all_groups=()
+    local family group g
+    local found=0
+    for family in ${(k)STUDENT_GROUP_MEMBERSHIP}; do
+        for group in ${(s:,:)STUDENT_GROUP_MEMBERSHIP[$family]}; do
+            # Add to array if not already present
+            found=0
+            for g in "${all_groups[@]}"; do
+                [[ "$g" == "$group" ]] && { found=1; break; }
+            done
+            [[ $found -eq 0 ]] && all_groups+=("$group")
+        done
+    done
 
-    # Find group case briefs (those with 3+ family names, i.e., dashes indicate group)
-    for brief_file in "$case_brief_dir"/${year}-*-*-*.md; do
-        [[ ! -f "$brief_file" ]] && continue
+    echo "  Found ${#all_groups[@]} unique groups to process"
 
-        local filename=$(basename "$brief_file" .md)
-        local name_part="${filename#${year}-}"
-
-        # Convert to group format (dashes to spaces)
-        local group_name="${name_part//-/ }"
-
-        # Strip known suffixes (like "code", "data", etc.)
-        group_name=$(strip_submission_suffixes "$group_name")
-
-        # Parse the case brief to extract member names
-        parse_case_brief_members "$brief_file" "$group_name"
+    # Load full names for each group
+    for group in "${all_groups[@]}"; do
+        echo "    Processing group: $group"
+        load_group_full_names "$group" "$year" "$base_dir"
     done
 }
 
@@ -3122,7 +3492,7 @@ evaluate_group_submissions() {
     STUDENT_GROUP_MEMBERSHIP=()
 
     # Build header
-    local header="Group Members"
+    local header="Group ID,Group Members"
     for sub in "${GROUP_SUBMISSIONS[@]}"; do
         header="$header,$sub"
     done
@@ -3187,15 +3557,20 @@ evaluate_group_submissions() {
             # Convert group key to display format (space-separated)
             display_key=$(echo "$group_key" | tr '-' ' ')
 
+            # Generate Group ID
+            local group_id=$(normalize_group_id "$display_key" "$year")
+
             # Register all group members for later lookup (when copying scores to individuals)
             register_group_membership "$display_key"
 
-            # Store with underscores in found_groups to avoid quoting issues
-            # Note: Do NOT use quotes around $storage_key_for_group - zsh stores literal quotes
-            local storage_key_for_group="${display_key// /_}"
+            # Store with group_id as the key for the CSV (dashes, not underscores)
+            local storage_key_for_group="${group_id}"
             found_groups[$storage_key_for_group]=1
-            update_csv_value "$display_key" "$submission_type" "$score"
-            update_csv_value "$display_key" "${submission_type}_notes" "$notes"
+
+            # Store Group ID column (the key itself)
+            update_csv_value "$group_id" "Group ID" "$group_id"
+            update_csv_value "$group_id" "$submission_type" "$score"
+            update_csv_value "$group_id" "${submission_type}_notes" "$notes"
         done
 
         # Verify submission count matches
@@ -3208,31 +3583,43 @@ evaluate_group_submissions() {
         echo ""
     done
 
+    # Load full names for all groups from all submission types
+    echo ""
+    echo "Loading group member full names..."
+    load_all_group_memberships "$BASE_DIR" "$year"
+    echo "  Loaded full names for ${#GROUP_FULL_MEMBERS[@]} groups"
+
     # Set score 0 for groups with no submission for a type
     # Also count how many submission types each group has (to detect misplaced individuals)
-    # found_groups keys are already underscore-based to avoid quoting issues
-    # Note: Do NOT quote ${(k)found_groups} - quoting adds literal quotes to keys
-    local group_storage_key group_display
+    # found_groups keys are now Group IDs (like "2026-Chen-Chen-Liu")
+    local group_id="" group_display="" group_key=""
     local -A group_submission_counts
     local total_group_types=${#GROUP_SUBMISSIONS[@]}
 
-    for group_storage_key in ${(k)found_groups}; do
-        # Convert underscores back to spaces for display
-        group_display="${group_storage_key//_/ }"
+    for group_id in ${(k)found_groups}; do
+        # Convert Group ID to display format (space-separated, no year)
+        group_key="${group_id#*-}"  # Remove year prefix
+        group_display="${group_key//-/ }"
+
         local submission_count=0
         for submission_type in "${GROUP_SUBMISSIONS[@]}"; do
-            if [[ -z "${CSV_DATA[$group_storage_key,$submission_type]:-}" ]]; then
-                update_csv_value "$group_display" "$submission_type" "0"
-                update_csv_value "$group_display" "${submission_type}_notes" "No submission"
+            if [[ -z "${CSV_DATA[$group_id,$submission_type]:-}" ]]; then
+                update_csv_value "$group_id" "$submission_type" "0"
+                update_csv_value "$group_id" "${submission_type}_notes" "No submission"
             else
                 # Count non-zero submissions
-                local score_val="${CSV_DATA[$group_storage_key,$submission_type]}"
+                local score_val="${CSV_DATA[$group_id,$submission_type]}"
                 if [[ "$score_val" != "0" ]]; then
                     submission_count=$((submission_count + 1))
                 fi
             fi
         done
-        group_submission_counts[$group_storage_key]=$submission_count
+        group_submission_counts[$group_id]=$submission_count
+
+        # Store Group Members (with full names using & separator)
+        local full_members="${GROUP_FULL_MEMBERS[$group_id]:-$group_display}"
+        # Quote the full members list
+        update_csv_value "$group_id" "Group Members" "\"$full_members\""
     done
 
     # Warn about potential misplaced individual submissions
@@ -3240,9 +3627,10 @@ evaluate_group_submissions() {
     echo ""
     echo "Checking for potential misplaced individual submissions..."
     local misplaced_count=0
-    for group_storage_key in ${(k)found_groups}; do
-        group_display="${group_storage_key//_/ }"
-        local count=${group_submission_counts[$group_storage_key]:-0}
+    for group_id in ${(k)found_groups}; do
+        group_key="${group_id#*-}"
+        group_display="${group_key//-/ }"
+        local count=${group_submission_counts[$group_id]:-0}
         local missing_count=$((total_group_types - count))
 
         if [[ $missing_count -ge 6 ]]; then
@@ -3283,23 +3671,27 @@ evaluate_individual_submissions() {
     # If STUDENT_GROUP_MEMBERSHIP is empty (e.g., running -i only), load from group CSV
     if [[ ${#STUDENT_GROUP_MEMBERSHIP[@]} -eq 0 && -f "$group_csvfile" ]]; then
         echo "Loading group membership from $group_csvfile..."
-        while IFS=',' read -r group_members rest; do
-            [[ "$group_members" == "Group Members" ]] && continue
-            register_group_membership "$group_members"
+        # New format: Group ID is first column (YYYY-Family1-Family2-...)
+        while IFS=',' read -r group_id group_members rest; do
+            [[ "$group_id" == "Group ID" ]] && continue
+            # Extract group key from Group ID (remove year prefix)
+            local group_key="${group_id#*-}"
+            group_key="${group_key//-/ }"
+            register_group_membership "$group_key"
         done < "$group_csvfile"
         echo ""
     fi
 
-    # Load full name mappings from case briefs (for accurate member matching)
+    # Load full name mappings from all submission types (for accurate member matching)
     if [[ ${#STUDENT_FULL_NAME_TO_GROUP[@]} -eq 0 ]]; then
-        echo "Loading full name mappings from case briefs..."
-        load_case_brief_memberships "$BASE_DIR" "$year"
+        echo "Loading full name mappings from submissions..."
+        load_all_group_memberships "$BASE_DIR" "$year"
         echo "  Loaded ${#STUDENT_FULL_NAME_TO_GROUP[@]} full name mappings"
         echo ""
     fi
 
     # Build header - add Inconsistent_name column after Student Name
-    local header="Student Name,Inconsistent_name"
+    local header="Name,Group ID,Inconsistent_name"
     for sub in "${INDIVIDUAL_SUBMISSIONS[@]}"; do
         header="$header,$sub"
     done
@@ -3400,25 +3792,32 @@ evaluate_individual_submissions() {
 
     # Load group CSV to copy group scores
     # Copy group scores to individual students based on actual group membership
-    # Uses STUDENT_GROUP_MEMBERSHIP which was populated during group evaluation
+    # Uses STUDENT_FULL_NAME_TO_GROUP which was populated from submissions
     if [[ -f "$group_csvfile" ]]; then
         echo "Copying group scores to individual students..."
         echo ""
 
-        while IFS=',' read -r group_members rest; do
-            [[ "$group_members" == "Group Members" ]] && continue
+        while IFS=',' read -r group_id group_members_quoted rest; do
+            [[ "$group_id" == "Group ID" ]] && continue
 
-            # Use zsh array splitting
-            values=(${(s:,:):-${group_members},${rest}})
+            # Extract group key from Group ID (remove year prefix, convert dashes to spaces)
+            local group_key="${group_id#*-}"
+            group_key="${group_key//-/ }"
 
-            # Parse the CSV line properly
+            # Remove quotes from group_members
+            local group_members="${group_members_quoted//\"/}"
+
+            # Use zsh array splitting (skip first 2 columns: Group ID, Group Members)
+            values=(${(s:,:):-${group_id},${group_members_quoted},${rest}})
+
+            # Parse the CSV line properly - scores start at column 3
             idx=0
             for sub in "${GROUP_SUBMISSIONS[@]}"; do
                 idx=$((idx + 1))
-                score="${values[$((idx+1))]:-0}"  # zsh arrays are 1-indexed
+                score="${values[$((idx+2))]:-0}"  # +2 because Group ID and Group Members are columns 1 and 2
 
                 # Find notes column
-                notes_idx=$((idx + 1 + ${#GROUP_SUBMISSIONS[@]}))
+                notes_idx=$((idx + 2 + ${#GROUP_SUBMISSIONS[@]}))
                 notes="${values[$notes_idx]:-}"
 
                 # Assign only to students who are actual members of this group
@@ -3426,10 +3825,12 @@ evaluate_individual_submissions() {
                     canonical_name="${student_canonical_name[$norm_key]}"
 
                     # Use is_group_member with full name for accurate matching
-                    if is_group_member "$canonical_name" "$group_members"; then
+                    if is_group_member "$canonical_name" "$group_key"; then
                         update_csv_value "$canonical_name" "$sub" "$score"
                         update_csv_value "$canonical_name" "${sub}_notes" "$notes"
-                        student_groups[$canonical_name]=$group_members
+                        student_groups[$canonical_name]=$group_key
+                        # Store Group ID for this student
+                        update_csv_value "$canonical_name" "Group ID" "$group_id"
                     fi
                 done
             done

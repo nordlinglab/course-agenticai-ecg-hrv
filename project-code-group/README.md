@@ -6,7 +6,7 @@ This folder contains group project source code for AI agent systems.
 
 ### Folder Format
 - **Format:** Folder containing source code and documentation.
-- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` (alphabetical order, ASCII only).
+- **Folder Naming:** `YYYY-FamilyName1-FamilyName2-FamilyName3/` or `YYYY-FamilyName1-FamilyName2-FamilyName3-code/` (alphabetical order, ASCII only).
 - **License:** Apache-2.0 for code (required).
 
 ### Folder Structure
@@ -158,7 +158,7 @@ cp .env.example .env
 
 Create a `.env` file with the following:
 
-```
+```bash
 ANTHROPIC_API_KEY=your_api_key_here
 ```
 
@@ -271,7 +271,7 @@ def process_signal(ecg_data: dict) -> dict:
 
 ## Architecture
 
-```
+```bash
 ┌─────────────────┐
 │   Orchestrator  │ ← Claude Opus 4.5
 │  (coordinates)  │
@@ -286,7 +286,7 @@ def process_signal(ecg_data: dict) -> dict:
 
 ### Project Structure
 
-```
+```bash
 ├── src/
 │   ├── orchestrator.py      # Main agent orchestrator
 │   ├── tools/
@@ -325,7 +325,7 @@ python -m pytest tests/ --cov=src
 
 ### requirements.txt
 
-```
+```bash
 anthropic>=0.18.0
 numpy>=1.24.0
 scipy>=1.11.0
@@ -345,7 +345,7 @@ License file filled out after downloading from
 
 ### .env.example
 
-```
+```bash
 # Anthropic API Key (required)
 ANTHROPIC_API_KEY=
 
@@ -388,7 +388,6 @@ report:
 ### Code
 
 Source code in `src/` and `scripts/`
-
 ```
 
 ---
@@ -434,7 +433,7 @@ venv/
 
 Before submitting, verify:
 
-- [ ] Folder named correctly: `YYYY-Name1-Name2-Name3/` (alphabetical)
+- [ ] Folder named correctly: `YYYY-FamilyName1-FamilyName2-FamilyName3/` or `YYYY-FamilyName1-FamilyName2-FamilyName3-code/` (alphabetical)
 - [ ] Only ASCII characters in folder and file names
 - [ ] `README.md` present with setup and usage instructions
 - [ ] `requirements.txt` with all dependencies

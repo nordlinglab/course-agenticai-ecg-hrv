@@ -856,6 +856,391 @@ test_existing_cache_files_valid_json() {
 }
 
 # ============================================================================
+# TESTS: Group CSV Format (Group ID, Group Members columns)
+# ============================================================================
+
+test_group_csv_has_group_id_column() {
+    # Test that group CSV has Group ID column
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        local header
+        header=$(head -1 2026_submissions_group.csv)
+
+        assert_contains "$header" "Group ID" "Group CSV header should contain Group ID column"
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_group_csv_has_group_members_column() {
+    # Test that group CSV has Group Members column
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        local header
+        header=$(head -1 2026_submissions_group.csv)
+
+        assert_contains "$header" "Group Members" "Group CSV header should contain Group Members column"
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_group_id_format() {
+    # Test that Group ID values follow YYYY-Family1-Family2-... format
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        # Check that all Group ID values match YYYY-Family1-Family2-... format
+        # First column is Group ID
+        local invalid_ids
+        invalid_ids=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f1 | grep -v '^[0-9][0-9][0-9][0-9]-[A-Z][a-z]*-[A-Z][a-z]*' | wc -l | tr -d ' ')
+
+        ((TESTS_RUN++))
+        if [[ "$invalid_ids" -eq 0 ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: All Group ID values match YYYY-Family1-Family2-... format"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Found $invalid_ids invalid Group ID values"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_group_members_ampersand_separated() {
+    # Test that Group Members values are ampersand-separated
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        # Get header to find Group Members column index (column 2)
+        # Check that at least one Group Members value contains & separator
+        local has_amp
+        has_amp=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f2 | grep -c '&' || echo "0")
+
+        ((TESTS_RUN++))
+        if [[ "$has_amp" -gt 0 ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: Group Members uses & separators ($has_amp groups with multiple members)"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: No & separators found in Group Members"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_individual_csv_has_group_id_column() {
+    # Test that individual CSV has Group ID column
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --individual --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_individual.csv" ]]; then
+        local header
+        header=$(head -1 2026_submissions_individual.csv)
+
+        assert_contains "$header" "Group ID" "Individual CSV header should contain Group ID column"
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Individual CSV not generated"
+        return 1
+    fi
+}
+
+# ============================================================================
+# TESTS: Author Parsing from README files
+# ============================================================================
+
+test_parse_author_line_with_markdown_bold() {
+    # Test parsing author lines with markdown bold formatting
+    local testfolder="$TEST_TMP_DIR/data-group/2026-Test-Bold-Format"
+    mkdir -p "$testfolder"
+    print -r -- "# Data Submission
+**Authors:** Alice Smith, Bob Chen, Carol Wang
+
+## Source
+Test source." > "$testfolder/README.md"
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    # Should process without error
+    assert_contains "$result" "Evaluating group submissions" "Should run group evaluation"
+}
+
+test_parse_author_line_without_markdown() {
+    # Test parsing author lines without markdown formatting
+    local testfolder="$TEST_TMP_DIR/data-group/2026-Test-Plain-Format"
+    mkdir -p "$testfolder"
+    print -r -- "# Data Submission
+Authors: Alice Smith, Bob Chen
+
+## Source
+Test source." > "$testfolder/README.md"
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    assert_contains "$result" "Evaluating group submissions" "Should run group evaluation"
+}
+
+test_parse_members_keyword() {
+    # Test parsing with Members: keyword
+    local testfolder="$TEST_TMP_DIR/data-group/2026-Test-Members-Keyword"
+    mkdir -p "$testfolder"
+    print -r -- "# Data Submission
+Members: Smith Alice, Chen Bob
+
+## Source
+Test source." > "$testfolder/README.md"
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    assert_contains "$result" "Evaluating group submissions" "Should run group evaluation"
+}
+
+# ============================================================================
+# TESTS: Tag Removal from Folder Names
+# ============================================================================
+
+test_tag_removal_data_suffix() {
+    # Test that -data suffix is properly removed from folder names
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    # Folders like 2026-Khan-Liu-Peng-data should be identified as Khan-Liu-Peng group
+    assert_contains "$result" "Khan Liu Peng" "Should identify group from folder with -data suffix"
+}
+
+test_tag_removal_code_suffix() {
+    # Test that -code suffix is properly removed from folder names
+    cd "$SCRIPT_DIR/.."
+
+    local result
+    result=$(zsh "$EVAL_SCRIPT" --group --year 2026 2>&1)
+
+    # Should process folders with -code suffix
+    assert_contains "$result" "Checking project-code" "Should check project-code submissions"
+}
+
+# ============================================================================
+# TESTS: No Duplicate Groups in CSV
+# ============================================================================
+
+test_no_duplicate_groups_in_csv() {
+    # Test that there are no duplicate group entries in the group CSV
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        local total_lines unique_groups
+        total_lines=$(tail -n +2 2026_submissions_group.csv | wc -l | tr -d ' ')
+        unique_groups=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f1 | sort -u | wc -l | tr -d ' ')
+
+        ((TESTS_RUN++))
+        if [[ "$total_lines" -eq "$unique_groups" ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: No duplicate groups in CSV ($total_lines entries, all unique)"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Duplicate groups found - $total_lines lines but only $unique_groups unique groups"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_all_groups_have_members() {
+    # Test that all groups have at least one member in Group Members column (column 2)
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        # Group Members is column 2 - check for empty values
+        # Note: values are quoted so we check for empty quotes or missing values
+        local empty_members
+        empty_members=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f2 | grep -cE '^"?"?$' 2>/dev/null || echo 0)
+        empty_members=${empty_members//[^0-9]/}  # Remove any non-numeric characters
+        [[ -z "$empty_members" ]] && empty_members=0
+
+        ((TESTS_RUN++))
+        if [[ "$empty_members" -eq 0 ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: All groups have Group Members populated"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Found $empty_members groups with empty Group Members"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+# ============================================================================
+# TESTS: No Duplicate Students Across Groups
+# ============================================================================
+
+test_no_duplicate_students_across_groups() {
+    # Test that no student appears in multiple groups' Group Members column
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        # Extract all names from Group Members column (column 2), split by " & "
+        # Then check for duplicates
+        local all_names
+        all_names=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f2 | tr -d '"' | tr '&' '\n' | sed 's/^ *//;s/ *$//' | sort)
+
+        local unique_names
+        unique_names=$(echo "$all_names" | sort -u)
+
+        local total_count unique_count
+        total_count=$(echo "$all_names" | grep -c . || echo 0)
+        unique_count=$(echo "$unique_names" | grep -c . || echo 0)
+
+        ((TESTS_RUN++))
+        if [[ "$total_count" -eq "$unique_count" ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: No duplicate students across groups ($total_count students, all unique)"
+            return 0
+        else
+            local duplicates
+            duplicates=$(echo "$all_names" | sort | uniq -d)
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Found duplicate students: $duplicates"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_name_format_no_family_given_hyphen() {
+    # Test that names in Group Members don't have hyphen between family and given name
+    # Valid: "Chen KunYu", "Lin Chih-Yi" (hyphen within given name is OK)
+    # Invalid: "Chen-KunYu" (hyphen connecting family to given)
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        # Extract Group Members column and check for pattern: word-word where both are capitalized
+        # This catches "Chen-KunYu" but not "Chih-Yi" (which is within a given name)
+        local bad_format_names
+        # Pattern: matches names like "Chen-KunYu" (Capital-Capital without space)
+        bad_format_names=$(tail -n +2 2026_submissions_group.csv | cut -d',' -f2 | tr -d '"' | tr '&' '\n' | sed 's/^ *//;s/ *$//' | grep -E '^[A-Z][a-z]+-[A-Z][a-z]+$' || true)
+
+        ((TESTS_RUN++))
+        if [[ -z "$bad_format_names" ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: No names with family-given hyphen format found"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Found names with hyphen between family and given: $bad_format_names"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+test_group_member_count_matches_group_size() {
+    # Test that groups have appropriate number of members based on group ID
+    # Group ID format: YYYY-Family1-Family2-Family3 (3 family names = 3 members typically)
+    cd "$SCRIPT_DIR/.."
+
+    zsh "$EVAL_SCRIPT" --group --year 2026 >/dev/null 2>&1
+
+    if [[ -f "2026_submissions_group.csv" ]]; then
+        local issues=""
+        while IFS=',' read -r group_id members_quoted rest; do
+            [[ "$group_id" == "Group ID" ]] && continue
+
+            # Count family names in group ID (subtract 1 for year prefix)
+            local family_count=$(echo "$group_id" | tr '-' '\n' | tail -n +2 | wc -l | tr -d ' ')
+
+            # Count members (split by " & ")
+            local members="${members_quoted//\"/}"
+            local member_count=$(echo "$members" | tr '&' '\n' | wc -l | tr -d ' ')
+
+            # Allow member_count to be >= family_count (same person can have multiple submissions)
+            # but should not be less
+            if [[ "$member_count" -gt "$family_count" ]]; then
+                issues="$issues\n  $group_id: has $member_count members but only $family_count family names"
+            fi
+        done < 2026_submissions_group.csv
+
+        ((TESTS_RUN++))
+        if [[ -z "$issues" ]]; then
+            ((TESTS_PASSED++))
+            echo -e "${GREEN}PASS${NC}: Group member counts are valid"
+            return 0
+        else
+            ((TESTS_FAILED++))
+            echo -e "${RED}FAIL${NC}: Groups with too many members:$issues"
+            return 1
+        fi
+    else
+        ((TESTS_RUN++))
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Group CSV not generated"
+        return 1
+    fi
+}
+
+# ============================================================================
 # TEST RUNNER
 # ============================================================================
 
@@ -920,6 +1305,31 @@ run_all_tests() {
     run_test test_ytdlp_json_output_valid
     run_test test_video_cache_json_structure
     run_test test_existing_cache_files_valid_json
+
+    # Group CSV format tests
+    run_test test_group_csv_has_group_id_column
+    run_test test_group_csv_has_group_members_column
+    run_test test_group_id_format
+    run_test test_group_members_ampersand_separated
+    run_test test_individual_csv_has_group_id_column
+
+    # Author parsing tests
+    run_test test_parse_author_line_with_markdown_bold
+    run_test test_parse_author_line_without_markdown
+    run_test test_parse_members_keyword
+
+    # Tag removal tests
+    run_test test_tag_removal_data_suffix
+    run_test test_tag_removal_code_suffix
+
+    # Group integrity tests
+    run_test test_no_duplicate_groups_in_csv
+    run_test test_all_groups_have_members
+
+    # Student duplicate and name format tests
+    run_test test_no_duplicate_students_across_groups
+    run_test test_name_format_no_family_given_hyphen
+    run_test test_group_member_count_matches_group_size
 
     teardown
 
