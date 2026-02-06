@@ -527,10 +527,11 @@ parse_author_names() {
 }
 
 # Extract author names from file content
-# Looks for common patterns within first 15 lines:
-#   - "Author:", "Authors:"
+# Looks for common patterns in file content:
+#   - "Author:", "Authors:", "Author " (with or without colon)
 #   - "Group:", "Group members:"
 #   - "Team:", "Team members:"
+#   - LaTeX: \author{...}, \author[...]{...}
 # Returns: newline-separated list of author full names found in content
 extract_authors_from_content() {
     local filepath="$1"
@@ -546,26 +547,44 @@ extract_authors_from_content() {
         return
     fi
 
-    # Read first 15 lines for author information
+    # Determine how many lines to read based on file type
+    # LaTeX files may have author declarations deeper in the preamble
+    local lines_to_read=15
+    if [[ "$content_file" == *.tex ]]; then
+        lines_to_read=100
+    fi
+
+    # Read lines for author information
     local first_lines
-    first_lines=$(head -15 "$content_file" 2>/dev/null || true)
+    first_lines=$(head -"$lines_to_read" "$content_file" 2>/dev/null || true)
 
     # Try multiple patterns to find authors
-    # IMPORTANT: Patterns must require a colon to avoid matching titles like "Group Tests"
     local author_line=""
 
-    # Pattern 1: "Author:" or "Authors:" (with optional ** markdown)
-    # Must have colon after the keyword
-    author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*authors?[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+    # Pattern 1: "Author:" or "Authors:" (with optional ** markdown, colon required)
+    # NOTE: Use printf instead of echo to preserve backslashes (zsh echo interprets \a, \b, etc.)
+    author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*authors?[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+
+    # Pattern 1b: "Author" or "Authors" without colon (e.g., "Author John Smith")
+    # Only match if followed by what looks like a name (uppercase letter)
+    if [[ -z "$author_line" ]]; then
+        author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*authors?[*]*[[:space:]]+[A-Z]" | head -1 | sed -E 's/^[*#[:space:]]*(authors?)[*]*[[:space:]]+//' || true)
+    fi
 
     # Pattern 2: "Group:" or "Group members:" (must have colon)
     if [[ -z "$author_line" ]]; then
-        author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*(group|group members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+        author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*(group|group members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
     fi
 
     # Pattern 3: "Team:" or "Team members:" (must have colon)
     if [[ -z "$author_line" ]]; then
-        author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*(team|team members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+        author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*(team|team members?)[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+    fi
+
+    # Pattern 4: LaTeX \author{} or \author[]{}
+    if [[ -z "$author_line" ]]; then
+        # Use sed to extract LaTeX author - grep ERE has issues with [^]] pattern
+        author_line=$(printf '%s\n' "$first_lines" | sed -n 's/.*\\author\(\[[^]]*\]\)\{0,1\}{\([^}]*\)}.*/\2/p' | head -1 | sed 's/\\and/,/g' || true)
     fi
 
     if [[ -z "$author_line" ]]; then
@@ -632,6 +651,45 @@ normalize_name_string() {
 # Check if any name in the author line has year-prefix format (e.g., 2026-Chen-KunYu)
 # This is the only format we penalize as it's clearly a filename format, not a name
 # Returns: 0 if year-prefix found (bad), 1 if no year-prefix (good)
+# Extract family names from a filepath/foldername
+# E.g., "path/to/2026-Chen-Lin-Wang-data" → "Chen Lin Wang"
+# Returns: space-separated list of potential family names
+extract_family_names_from_path() {
+    local filepath="$1"
+    local basename_part=""
+    local names=""
+
+    # Get the basename (folder or file name)
+    basename_part=$(basename "$filepath")
+
+    # Remove file extension if present
+    basename_part="${basename_part%.*}"
+
+    # Strip year prefix (YYYY- or YY-)
+    if [[ "$basename_part" =~ ^[0-9]{2,4}- ]]; then
+        basename_part="${basename_part#*-}"
+    fi
+
+    # Strip common submission suffixes
+    basename_part=$(strip_submission_suffixes "$basename_part")
+
+    # Split by dash to get potential names
+    # Filter to keep only tokens that look like family names (single words, start with uppercase)
+    local -a tokens
+    tokens=(${(s:-:)basename_part})
+
+    local token
+    for token in "${tokens[@]}"; do
+        # Keep tokens that look like family names: single word, starts with uppercase
+        # Skip tokens that look like CamelCase given names (have uppercase after first letter)
+        if [[ "$token" =~ ^[A-Z][a-z]*$ ]]; then
+            names="${names}${names:+ }${token}"
+        fi
+    done
+
+    echo "$names"
+}
+
 has_year_prefix_format() {
     local author_line="$1"
     # Matches: 2026-Chen-KunYu, 2026-Lin-Chih-Yi, etc.
@@ -640,22 +698,41 @@ has_year_prefix_format() {
 
 # Count the number of authors in an author line
 # Handles comma-separated, semicolon-separated, and "and" separated names
+# Also handles "Familyname, Givenname" format by normalizing before counting
+# Arguments:
+#   $1: author_line - the raw author string
+#   $2: known_family_names (optional) - space-separated list of known family names
+#   $3: is_group (optional) - "true" for group submissions, "false" for individual
+#       For individual submissions, always returns 1 (comma doesn't split authors)
 # Returns: integer count
 count_authors_in_line() {
     local author_line="$1"
+    local known_family_names="${2:-}"
+    local is_group="${3:-true}"
 
     # Remove markdown formatting
     author_line=$(echo "$author_line" | sed 's/[*#`]//g')
 
-    # Replace " and " with comma, semicolons with comma for uniform counting
-    author_line=$(echo "$author_line" | sed 's/ and /,/gi' | tr ';' ',')
-
-    # Count entries by counting commas + 1 (if there's content)
     # First check if there's any content at all
     if ! echo "$author_line" | grep -q '[A-Za-z]'; then
         echo "0"
         return
     fi
+
+    # For individual submissions, there's exactly one author
+    # Commas in individual author lines are formatting, not separators
+    # (e.g., "Wu-Kun,Che" is one person, not two)
+    if [[ "$is_group" == "false" ]]; then
+        echo "1"
+        return
+    fi
+
+    # Replace " and " with comma, semicolons with comma for uniform counting
+    author_line=$(echo "$author_line" | sed 's/ and /,/gi' | tr ';' ',')
+
+    # Normalize "Familyname, Givenname" format before counting
+    # This handles cases like "Wu, KunChe, Chen, WeiLin" → "Wu KunChe, Chen WeiLin"
+    author_line=$(normalize_familyname_givenname_format "$author_line" "$known_family_names")
 
     # Count commas and add 1
     local comma_count
@@ -663,6 +740,133 @@ count_authors_in_line() {
     local count=$((comma_count + 1))
 
     echo "$count"
+}
+
+# Normalize "Familyname, Givenname" format to "Familyname Givenname"
+# Handles cases like:
+#   - "Wu, KunChe" → "Wu KunChe"
+#   - "Wu, KunChe, Chen, WeiLin" → "Wu KunChe, Chen WeiLin"
+#   - "Wu,KunChe" (no space after comma) → detected via family name, not just spacing
+# Arguments:
+#   $1: author_line - the raw author string
+#   $2: known_family_names (optional) - space-separated list of known family names
+# Returns: normalized author string
+normalize_familyname_givenname_format() {
+    local author_line="$1"
+    local known_family_names="${2:-}"
+    local result=""
+    local -a tokens
+    local i=0
+    local token="" next_token=""
+
+    # Normalize commas without spaces to have spaces for uniform splitting
+    # (but don't treat this as single name - let family name detection decide)
+    author_line=$(echo "$author_line" | sed 's/,\([^ ]\)/, \1/g')
+
+    # Split by comma to get tokens
+    tokens=(${(s:,:)author_line})
+    local num_tokens=${#tokens[@]}
+
+    # If only one token, return as-is
+    if [[ $num_tokens -le 1 ]]; then
+        echo "$author_line"
+        return
+    fi
+
+    # Build lowercase family names set for matching
+    local -a family_names_lower
+    if [[ -n "$known_family_names" ]]; then
+        local fn
+        for fn in ${(s: :)known_family_names}; do
+            family_names_lower+=($(echo "$fn" | tr '[:upper:]' '[:lower:]'))
+        done
+    fi
+
+    # Check if a token is a known family name
+    is_token_family_name() {
+        local check_token="$1"
+        local check_lower=$(echo "$check_token" | tr '[:upper:]' '[:lower:]')
+        local fn_check
+        for fn_check in "${family_names_lower[@]}"; do
+            if [[ "$check_lower" == "$fn_check" ]]; then
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    # Process tokens to detect "Familyname, Givenname" pattern
+    i=1
+    while [[ $i -le $num_tokens ]]; do
+        token=$(echo "${tokens[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        if [[ $i -lt $num_tokens ]]; then
+            next_token=$(echo "${tokens[$((i+1))]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        else
+            next_token=""
+        fi
+
+        # Check if current token is a known family name
+        local is_known_family=false
+        if [[ ${#family_names_lower[@]} -gt 0 ]] && is_token_family_name "$token"; then
+            is_known_family=true
+        fi
+
+        # Determine if this looks like "Familyname, Givenname" pattern
+        # Conditions:
+        # 1. Current token is a known family name AND next token is NOT a known family name
+        #    (if both are family names, they're separate authors)
+        # 2. OR: Token is a single word and next token looks like a CamelCase given name
+        #    (starts with uppercase, has lowercase, no space - e.g., "KunChe", "WeiLin")
+        local is_familyname_pattern=false
+
+        if [[ -n "$next_token" ]]; then
+            # Check if next token is also a family name (would indicate separate authors)
+            local next_is_family=false
+            if [[ ${#family_names_lower[@]} -gt 0 ]] && is_token_family_name "$next_token"; then
+                next_is_family=true
+            fi
+
+            # Check if next_token looks like a CamelCase given name (no space, starts with upper)
+            local next_is_givenname=false
+            if [[ "$next_token" =~ ^[A-Z][a-z]*[A-Z][a-z]*$ ]] && \
+               ! echo "$next_token" | grep -q ' '; then
+                next_is_givenname=true
+            fi
+
+            # Check if current token is a single word (potential family name)
+            local token_is_single_word=false
+            if ! echo "$token" | grep -q ' '; then
+                token_is_single_word=true
+            fi
+
+            # Pattern: known family name followed by non-family-name (given name)
+            # OR: single word followed by CamelCase given name
+            if ($is_known_family && ! $next_is_family) || ($token_is_single_word && $next_is_givenname); then
+                is_familyname_pattern=true
+            fi
+        fi
+
+        if $is_familyname_pattern && [[ -n "$next_token" ]]; then
+            # Combine family name with given name
+            if [[ -n "$result" ]]; then
+                result="${result}, ${token} ${next_token}"
+            else
+                result="${token} ${next_token}"
+            fi
+            i=$((i + 2))  # Skip the next token since we consumed it
+        else
+            # Regular token, add as-is
+            if [[ -n "$result" ]]; then
+                result="${result}, ${token}"
+            else
+                result="$token"
+            fi
+            i=$((i + 1))
+        fi
+    done
+
+    echo "$result"
 }
 
 # Check if Author/Authors keyword matches the number of authors
@@ -680,14 +884,14 @@ check_singular_plural_match() {
     local has_plural=false
     local has_singular=false
 
-    if echo "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
+    if printf '%s\n' "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
         has_plural=true
     fi
 
     # Check for "Author:" (singular) - must NOT have 's' before colon
     # Use word boundary to distinguish Author: from Authors:
-    if echo "$first_lines" | grep -qiE '^[*#[:space:]]*author[*]*[[:space:]]*:' && \
-       ! echo "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
+    if printf '%s\n' "$first_lines" | grep -qiE '^[*#[:space:]]*author[*]*[[:space:]]*:' && \
+       ! printf '%s\n' "$first_lines" | grep -qiE '^[*#[:space:]]*authors[*]*[[:space:]]*:'; then
         has_singular=true
     fi
 
@@ -704,6 +908,57 @@ check_singular_plural_match() {
 
     SINGULAR_PLURAL_DETAIL=""
     return 0
+}
+
+# Check if author line contains placeholder/template names
+# Returns: 0 if placeholder found (bad), 1 if no placeholder (good)
+# Sets PLACEHOLDER_DETAIL with the matched placeholder pattern
+is_placeholder_author() {
+    local author_line="$1"
+    PLACEHOLDER_DETAIL=""
+
+    # Check for common placeholder patterns (case-insensitive)
+    # Note: Patterns with special regex chars are escaped for grep -F (fixed string)
+    local -a placeholders_fixed=(
+        "YourFamilyName"
+        "YourFirstName"
+        "YourGivenName"
+        "Your Name"
+        "Your-Name"
+        "FirstName"
+        "LastName"
+        "FamilyName"
+        "GivenName"
+        "[Insert"
+        "[TODO"
+        "[Fill"
+        "[Enter"
+        "[Your"
+        "<Insert"
+        "<Your"
+        "XXX"
+        "XXXX"
+        "Student Name"
+        "Name Here"
+    )
+
+    local pattern
+    for pattern in "${placeholders_fixed[@]}"; do
+        # Use -F for fixed string matching (no regex interpretation)
+        if echo "$author_line" | grep -qiF "$pattern"; then
+            PLACEHOLDER_DETAIL="placeholder detected: $pattern"
+            return 0
+        fi
+    done
+
+    # Check for patterns that look like template examples
+    # e.g., "Example-Name", "Test-Author"
+    if echo "$author_line" | grep -qiE "(example|test|sample|demo|template)[-_ ]?(name|author|student)"; then
+        PLACEHOLDER_DETAIL="template example name detected"
+        return 0
+    fi
+
+    return 1
 }
 
 # Calculate partial credit score for author-related criteria
@@ -725,9 +980,20 @@ calculate_author_score() {
         return
     fi
 
-    # Count authors
+    # Check for placeholder/template author names
+    if is_placeholder_author "$author_line"; then
+        echo "0|$PLACEHOLDER_DETAIL"
+        return
+    fi
+
+    # Extract family names from filepath to help with "Familyname, Givenname" detection
+    local known_family_names
+    known_family_names=$(extract_family_names_from_path "$filepath")
+
+    # Count authors (pass known family names and is_group context)
+    # For individual submissions, comma doesn't split authors
     local author_count
-    author_count=$(count_authors_in_line "$author_line")
+    author_count=$(count_authors_in_line "$author_line" "$known_family_names" "$is_group")
 
     # Check 1: Singular/plural mismatch
     if ! check_singular_plural_match "$filepath" "$author_count"; then
@@ -739,6 +1005,28 @@ calculate_author_score() {
     if has_year_prefix_format "$author_line"; then
         score=$((score / 2))
         penalties="${penalties}year-prefix format (e.g. 2026-Name); "
+    fi
+
+    # Check 3: Author name matches filename (for individual submissions only)
+    if [[ "$is_group" == "false" ]] && [[ -n "$known_family_names" ]]; then
+        local author_family_name=""
+        # Extract first word from author line as potential family name
+        # Handle formats like "Chen KunYu" or "Chen, KunYu"
+        author_family_name=$(echo "$author_line" | sed 's/[,;].*//;s/[[:space:]].*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        if [[ -n "$author_family_name" ]]; then
+            local filename_family_name=""
+            # Get first family name from filepath (first word from known_family_names)
+            filename_family_name=$(echo "$known_family_names" | awk '{print $1}')
+
+            if [[ -n "$filename_family_name" ]]; then
+                # Compare using fuzzy match with distance 1
+                if ! fuzzy_match "$author_family_name" "$filename_family_name" 1; then
+                    score=$((score / 2))
+                    penalties="${penalties}author name mismatch (file: $filename_family_name, content: $author_family_name); "
+                fi
+            fi
+        fi
     fi
 
     # Return score and penalties separated by |
@@ -987,14 +1275,19 @@ matches_year() {
 # CRITERION CHECK FUNCTIONS
 # ============================================================================
 
-# Check if file has correct individual filename format: YYYY-FamilyName-FirstName.ext
+# Check if file has correct individual filename format: YYYY-FamilyName-GivenName[-MiddleName...].ext
+# Allows for:
+#   - Hyphenated given names: 2026-Fan-Cheng-Yu.md (Fan Cheng-Yu)
+#   - Multiple given names: 2026-Liu-TzuEn-Andrew.md (Liu TzuEn-Andrew)
+#   - Multiple family names: 2026-Garcia-Lopez-Maria.md (Garcia-Lopez Maria)
 check_individual_filename_format() {
     local filepath="$1"
     local year="$2"
     local filename=$(basename "$filepath")
 
-    # Pattern: YYYY-FamilyName-FirstName.ext (ASCII only, capital first letters)
-    if [[ "$filename" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+\.[a-z]+$ ]]; then
+    # Pattern: YYYY-Name1-Name2[-Name3...].ext (ASCII only, capital first letters)
+    # Must have at least 2 name parts (family + given), can have more
+    if [[ "$filename" =~ ^${year}-[A-Z][a-zA-Z]+-[A-Z][a-zA-Z]+(-[A-Z][a-zA-Z]+)*\.[a-z]+$ ]]; then
         return 0
     fi
     return 1
@@ -1417,29 +1710,21 @@ check_criterion() {
 
     case "$criterion" in
         filename_format)
-            # For system-design and slides: FAIL if submission is a folder instead of a file
+            # For system-design and slides: Allow folders but with 50% penalty
             if [[ "$submission_type" == "system-design" || "$submission_type" == "slides" ]]; then
                 if [[ -d "$filepath" ]]; then
-                    local foldername=$(basename "$filepath")
-                    local msg="folder submitted, expected file"
-                    # Also check for disallowed tags in folder name
-                    local names_part="${foldername#${year}-}"
-                    local -a parts
-                    parts=(${(s:-:)names_part})
-                    local part found_tags=""
-                    for part in "${parts[@]}"; do
-                        if is_known_tag "$part"; then
-                            if ! is_allowed_folder_suffix "$part"; then
-                                [[ -n "$found_tags" ]] && found_tags="$found_tags, "
-                                found_tags="${found_tags}${TAG_MATCH}"
-                            fi
-                        fi
-                    done
-                    if [[ -n "$found_tags" ]]; then
-                        msg="$msg; disallowed tags: $found_tags"
+                    # Check folder format instead of failing
+                    if check_group_folder_format "$filepath" "$year"; then
+                        # Folder format is valid, but apply 50% penalty for using folder instead of file
+                        CRITERION_SCORE_PCT=50
+                        [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(folder instead of file, -50%) ${NC}" >&2
+                        return 0
+                    else
+                        # Folder format is also invalid
+                        CRITERION_SCORE_PCT=0
+                        [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(folder with invalid format) ${NC}" >&2
+                        return 1
                     fi
-                    [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}($msg) ${NC}" >&2
-                    return 1
                 fi
             fi
             if [[ "$submission_type" == "ssh-key" || "$submission_type" == "case-brief" || "$submission_type" == "report" ]]; then
@@ -2524,19 +2809,19 @@ is_group_case_brief() {
     first_lines=$(head -20 "$filepath" 2>/dev/null)
 
     # Check for "Authors:" (plural with 's') - definitely group
-    if echo "$first_lines" | grep -qiE "^[*#[:space:]]*authors[*]*[[:space:]]*:"; then
+    if printf '%s\n' "$first_lines" | grep -qiE "^[*#[:space:]]*authors[*]*[[:space:]]*:"; then
         echo "group"
         return
     fi
 
     # Check for "Group:" or "Members:" - definitely group
-    if echo "$first_lines" | grep -qiE "^[*#[:space:]]*(group|members)[*]*[[:space:]]*:"; then
+    if printf '%s\n' "$first_lines" | grep -qiE "^[*#[:space:]]*(group|members)[*]*[[:space:]]*:"; then
         echo "group"
         return
     fi
 
     # Check for "Author:" (singular) and analyze content
-    author_line=$(echo "$first_lines" | grep -iE "^[*#[:space:]]*author[*]*[[:space:]]*:" | head -1)
+    author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*author[*]*[[:space:]]*:" | head -1)
     if [[ -n "$author_line" ]]; then
         # Extract the part after "Author:"
         local names_part="${author_line#*:}"
@@ -2593,6 +2878,70 @@ find_individual_submissions() {
             find "$folder_path" -maxdepth 1 -name "${year}-*.md" -type f 2>/dev/null | sort
             ;;
     esac
+}
+
+# Find if a student has a submission with wrong extension
+# Returns: the wrong extension found, or empty if no file found
+# E.g., if student submitted .pub.md instead of .pub for ssh-key
+find_wrong_extension_submission() {
+    local submission_type="$1"
+    local year="$2"
+    local student_name="$3"  # Format: "Family GivenName" (spaces)
+    local folder="${FOLDER_MAP[$submission_type]}"
+    local folder_path="$BASE_DIR/$folder"
+
+    [[ ! -d "$folder_path" ]] && return
+
+    # Convert student name to filename format (spaces to dashes)
+    local name_pattern="${student_name// /-}"
+
+    # Get expected extension for this submission type
+    local expected_ext=""
+    case "$submission_type" in
+        ssh-key) expected_ext="pub" ;;
+        case-brief|report) expected_ext="md" ;;
+    esac
+
+    # Look for any file matching the student name with any extension
+    local found_files
+    found_files=$(find "$folder_path" -maxdepth 1 -name "${year}-${name_pattern}.*" -type f 2>/dev/null || true)
+
+    if [[ -z "$found_files" ]]; then
+        # Also try with fuzzy name matching (in case of slight variations)
+        found_files=$(find "$folder_path" -maxdepth 1 -name "${year}-*" -type f 2>/dev/null | while read -r f; do
+            local fname=$(basename "$f")
+            local fbase="${fname%.*}"
+            local fstudent="${fbase#${year}-}"
+            # Normalize both names for comparison
+            local fstudent_norm=$(echo "$fstudent" | tr '[:upper:]' '[:lower:]' | tr '-' ' ')
+            local student_norm=$(echo "$student_name" | tr '[:upper:]' '[:lower:]')
+            if [[ "$fstudent_norm" == "$student_norm" ]]; then
+                echo "$f"
+            fi
+        done || true)
+    fi
+
+    [[ -z "$found_files" ]] && return
+
+    # Check each found file
+    local f wrong_ext=""
+    for f in ${(f)found_files}; do
+        [[ -z "$f" ]] && continue
+        local fname=$(basename "$f")
+        local ext="${fname##*.}"
+        # Get full extension for compound extensions like .pub.md
+        local base="${fname%.*}"
+        local second_ext="${base##*.}"
+        if [[ "$second_ext" != "$base" ]]; then
+            ext="${second_ext}.${ext}"
+        fi
+
+        # If it doesn't match expected extension, report it
+        if [[ -n "$expected_ext" && "$ext" != "$expected_ext" ]]; then
+            echo "$ext"
+            return
+        fi
+    done
 }
 
 # Find all group submissions of a type for a year
@@ -2992,46 +3341,44 @@ load_group_full_names() {
                 local ind_basename=$(basename "$ind_file" .md)
                 ind_basename="${ind_basename#${year}-}"
 
-                # Strip known suffixes before checking dash count
+                # Strip known suffixes
                 ind_basename="${ind_basename%-report}"
                 ind_basename="${ind_basename%-brief}"
-
-                # Skip group case briefs (those with multiple dashes after stripping suffixes)
-                local dash_count="${ind_basename//[^-]/}"
-                [[ ${#dash_count} -ge 2 ]] && continue
 
                 # Extract family name (first part before dash)
                 local ind_family="${ind_basename%%-*}"
                 local ind_first="${ind_basename#*-}"
-                ind_first="${ind_first//-/}"  # Remove any remaining dashes
 
-                # Check if this family name is in the group
-                # Use exact match for short names (<=3 chars) to avoid false positives like Lin/Liu
+                # Distinguish individual from group submissions:
+                # - Individual: starts with family name that's in the group (e.g., "Liu-TzuEn-Andrew")
+                # - Group: starts with year or has all family names (e.g., "Chen-Chen-Liu")
+                #
+                # Check if first part matches any group family name
+                local is_individual=false
                 for family in "${group_families[@]}"; do
-                    local match=false
-                    if [[ ${#ind_family} -le 3 || ${#family} -le 3 ]]; then
-                        # Exact match for short names (case-insensitive)
-                        [[ "${(L)ind_family}" == "${(L)family}" ]] && match=true
-                    else
-                        # Fuzzy match for longer names
-                        fuzzy_match "$ind_family" "$family" 1 && match=true
-                    fi
-
-                    if $match; then
-                        # Found a match - check if already assigned to another group
-                        local full_name="${(C)ind_family} ${(C)ind_first}"
-                        local norm_key=$(normalize_name "$full_name")
-
-                        # Skip if already assigned to a different group
-                        if [[ -n "${ASSIGNED_STUDENTS[$norm_key]:-}" && "${ASSIGNED_STUDENTS[$norm_key]}" != "$group_id" ]]; then
-                            [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Skipping $full_name (already in ${ASSIGNED_STUDENTS[$norm_key]})"
-                            break
-                        fi
-
-                        full_names+=("$full_name")
+                    if [[ "${(L)ind_family}" == "${(L)family}" ]]; then
+                        is_individual=true
                         break
                     fi
                 done
+
+                # Skip if not an individual submission for this group
+                [[ "$is_individual" != "true" ]] && continue
+
+                # Remove dashes from given name to handle "TzuEn-Andrew" → "TzuEnAndrew"
+                ind_first="${ind_first//-/}"
+
+                # Build full name and check if already assigned
+                local full_name="${(C)ind_family} ${(C)ind_first}"
+                local norm_key=$(normalize_name "$full_name")
+
+                # Skip if already assigned to a different group
+                if [[ -n "${ASSIGNED_STUDENTS[$norm_key]:-}" && "${ASSIGNED_STUDENTS[$norm_key]}" != "$group_id" ]]; then
+                    [[ -n "$VERBOSE" && "$VERBOSE" == "true" ]] && echo "        Skipping $full_name (already in ${ASSIGNED_STUDENTS[$norm_key]})"
+                    continue
+                fi
+
+                full_names+=("$full_name")
             done
         fi
 
@@ -3288,7 +3635,7 @@ is_group_member() {
         return 1
     fi
 
-    # Fall back to family name matching
+    # Fall back to family name matching, but ONLY if unambiguous
     local student_family="${student_full_name%% *}"
     local normalized=$(echo "$student_family" | tr '[:upper:]' '[:lower:]')
     local stored_groups="${STUDENT_GROUP_MEMBERSHIP[$normalized]:-}"
@@ -3298,22 +3645,27 @@ is_group_member() {
         local IFS=','
         local -a groups_array
         groups_array=(${(s:,:)stored_groups})
-        for group in "${groups_array[@]}"; do
-            if [[ "$group" == "$group_members_str" ]]; then
+
+        # Only use family name matching if there's EXACTLY ONE group
+        # Multiple groups with the same family name (e.g., "liu" in "Khan-Liu-Peng"
+        # and "Chen-Chen-Liu") means we cannot determine which group the student
+        # belongs to based on family name alone
+        if [[ ${#groups_array[@]} -eq 1 ]]; then
+            if [[ "${groups_array[1]}" == "$group_members_str" ]]; then
                 return 0
             fi
-        done
+        fi
+        # If multiple groups contain this family name, require full name match
+        # (which was already checked above and didn't match)
     fi
 
-    # As last resort, check if family name appears as a word in the group
-    local group_lower=$(echo "$group_members_str" | tr '[:upper:]' '[:lower:]')
-    local -a group_words
-    group_words=(${(s: :)group_lower})
-    for word in "${group_words[@]}"; do
-        if [[ "$word" == "$normalized" ]]; then
-            return 0
-        fi
-    done
+    # NOTE: Removed dangerous "last resort" fallback that matched ANY group containing
+    # the student's family name. This caused students like "Liu TzuEn-Andrew" to
+    # incorrectly match multiple groups (Khan-Liu-Peng, Chen-Chen-Liu, Fan-Lee-Liu)
+    # because all have "Liu" in the group key.
+    #
+    # If we don't have explicit mapping data (from STUDENT_FULL_NAME_TO_GROUP or
+    # STUDENT_GROUP_MEMBERSHIP), we should NOT assume group membership.
 
     return 1
 }
@@ -3853,7 +4205,20 @@ evaluate_individual_submissions() {
         for submission_type in "${INDIVIDUAL_SUBMISSIONS[@]}"; do
             if [[ -z "${CSV_DATA[$storage_key,$submission_type]:-}" ]]; then
                 update_csv_value "$canonical_name" "$submission_type" "0"
-                update_csv_value "$canonical_name" "${submission_type}_notes" "No submission"
+                # Check if there's a file with wrong extension
+                local wrong_ext=""
+                wrong_ext=$(find_wrong_extension_submission "$submission_type" "$year" "$canonical_name" 2>/dev/null)
+                if [[ -n "$wrong_ext" ]]; then
+                    # Determine expected extension
+                    local expected_ext=""
+                    case "$submission_type" in
+                        ssh-key) expected_ext=".pub" ;;
+                        case-brief|report) expected_ext=".md" ;;
+                    esac
+                    update_csv_value "$canonical_name" "${submission_type}_notes" "Wrong file extension (.$wrong_ext instead of $expected_ext)"
+                else
+                    update_csv_value "$canonical_name" "${submission_type}_notes" "No submission"
+                fi
             fi
         done
         for submission_type in "${GROUP_SUBMISSIONS[@]}"; do
