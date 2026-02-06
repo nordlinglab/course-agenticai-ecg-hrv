@@ -17,6 +17,7 @@ Your test submission must include:
 
 | Field | Description |
 |------|-------------|
+| **Authors** | Group member names |
 | **Overview** | Overview of testing approach |
 | **Test Summary** | Summary of results from all tests |
 | **Usage**| How to run tests |
