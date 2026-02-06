@@ -453,6 +453,7 @@ Before submitting, verify:
 
 - [ ] File named correctly: `YYYY-Name1-Name2-Name3.tex` (alphabetical)
 - [ ] All figures included and named correctly
+- [ ] The `.tex` file is not in the folder for figures
 - [ ] Only ASCII characters in filename(s)
 - [ ] License declaration included in document (SPDX header)
 - [ ] Uses NordlingLab169 theme with 16:9 aspect ratio
