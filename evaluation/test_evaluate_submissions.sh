@@ -197,8 +197,8 @@ test_logic_flag() {
 
     assert_exit_code 0 $exit_code "Logic should exit with code 0"
     assert_contains "$output" "Decision Tree" "Should show decision tree"
-    assert_contains "$output" "PASS" "Should explain PASS case"
-    assert_contains "$output" "FAIL" "Should explain FAIL case"
+    assert_contains "$output" "YES ──► Score:" "Should show YES/pass score path"
+    assert_contains "$output" "NO ──► Score: 0 pts" "Should show NO/fail score path"
 }
 
 test_invalid_submission_type() {
@@ -1727,6 +1727,195 @@ test_real_wu_kunche_no_author_count_penalty() {
 }
 
 # ============================================================================
+# TESTS: Figure Format Word Boundary (Bug fix: 'configured' matching 'figure')
+# ============================================================================
+
+test_figure_format_configured_not_match() {
+    # Test that 'configured' does NOT trigger word boundary bug
+    # Bug: "configured" was matching "figure" pattern, causing false "missing_file" errors
+    # Fix: Use word boundaries in grep pattern
+    # Note: This test expects FAILURE (no figures present) but with correct reason
+    #       CRITERION_NOTES should be "figure_format_no_figures" NOT "figure_format_missing_file"
+    local testfile="$TEST_TMP_DIR/report-individual/2026-Test-Configured.md"
+    print -r -- "# Test Report
+
+**Author:** Test-Person (test@example.com)
+
+## Abstract
+
+This system is configured to work with the AI service.
+The API key is configured via environment variables.
+If not configured, it falls back to default behavior.
+
+## References
+
+- No references
+" > "$testfile"
+
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    BASE_DIR="$TEST_TMP_DIR"
+    CRITERION_NOTES=""
+
+    check_criterion "figure_format" "report" "$testfile" "2026"
+    local ret=$?
+
+    ((TESTS_RUN++))
+    # Should fail because no figures (that's correct behavior)
+    # But should NOT have figure_format_missing_file (which would indicate word boundary bug)
+    if [[ $ret -ne 0 && "$CRITERION_NOTES" == "figure_format_no_figures" ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: 'configured' fails for correct reason (no figures) - word boundary bug not present"
+    elif [[ $ret -ne 0 && "$CRITERION_NOTES" == *"figure_format_missing_file"* ]]; then
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: 'configured' incorrectly triggers figure_format_missing_file - word boundary bug regressed"
+        echo "  CRITERION_NOTES: $CRITERION_NOTES"
+        return 1
+    elif [[ $ret -eq 0 ]]; then
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Expected failure (no figures) but got pass"
+        return 1
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Unexpected CRITERION_NOTES value: '$CRITERION_NOTES'"
+        return 1
+    fi
+}
+
+test_figure_format_actual_figure_fails() {
+    # Test that actual figure mentions DO trigger failure when no figures exist
+    local testfile="$TEST_TMP_DIR/report-individual/2026-Test-Figures.md"
+    print -r -- "# Test Report
+
+**Author:** Test-Person (test@example.com)
+
+## Results
+
+Figure 1 shows the ECG signal analysis.
+See Figure 2 for the comparison.
+
+## References
+
+- No references
+" > "$testfile"
+
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    BASE_DIR="$TEST_TMP_DIR"
+
+    check_criterion "figure_format" "report" "$testfile" "2026"
+    local ret=$?
+
+    ((TESTS_RUN++))
+    if [[ $ret -eq 1 ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: Actual 'Figure X' reference correctly triggers figure_format failure"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: 'Figure 1' should fail figure_format when no figure files exist"
+        return 1
+    fi
+}
+
+test_figure_format_no_figures_fails() {
+    # Test that reports without figure files fail (figures are required)
+    local testfile="$TEST_TMP_DIR/report-individual/2026-Test-NoFigure.md"
+    print -r -- "# Test Report
+
+**Author:** Test-Person (test@example.com)
+
+## Abstract
+
+This report describes the implementation.
+
+## References
+
+- No references
+" > "$testfile"
+
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    BASE_DIR="$TEST_TMP_DIR"
+
+    check_criterion "figure_format" "report" "$testfile" "2026"
+    local ret=$?
+
+    ((TESTS_RUN++))
+    # Now figures are REQUIRED, so no figures = fail
+    if [[ $ret -eq 1 ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: Report without figures correctly fails figure_format"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Report without figures should fail figure_format (figures required)"
+        return 1
+    fi
+}
+
+test_figure_format_notes_correct() {
+    # Test that the notes use the correct format when no figures present
+    local testfile="$TEST_TMP_DIR/report-individual/2026-Test-NoFigure2.md"
+    print -r -- "# Test Report
+
+**Author:** Test-Person (test@example.com)
+
+## Abstract
+
+This report describes the implementation.
+" > "$testfile"
+
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    BASE_DIR="$TEST_TMP_DIR"
+    CRITERION_NOTES=""
+
+    check_criterion "figure_format" "report" "$testfile" "2026"
+
+    ((TESTS_RUN++))
+    if [[ "$CRITERION_NOTES" == "figure_format_no_figures" ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: No figures produces correct note 'figure_format_no_figures'"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Expected note 'figure_format_no_figures', got '$CRITERION_NOTES'"
+        return 1
+    fi
+}
+
+test_real_reports_configured_not_matching() {
+    # Test that real reports with 'configured' don't get false figure mentions
+    cd "$SCRIPT_DIR/.."
+
+    source "$EVAL_SCRIPT" 2>/dev/null || true
+    BASE_DIR="$SCRIPT_DIR/.."
+
+    # Run evaluation and check that no report has "figure_format_missing_file" due to
+    # 'configured' matching 'figure' (the word boundary bug)
+    # Reports without figures will correctly have "figure_format_no_figures"
+    local output
+    output=$(./evaluate_submissions.sh -s report 2>&1)
+
+    # Read the CSV and check for the word boundary bug
+    local word_boundary_failures=0
+    while IFS=, read -r name rest; do
+        [[ "$name" == "Name" ]] && continue  # Skip header
+        # The notes column for report is column 17 (report_notes)
+        local notes=$(echo "$rest" | cut -d',' -f15)
+        # Check for "missing_file" which would indicate the bug
+        if [[ "$notes" == *"figure_format_missing_file"* ]]; then
+            ((word_boundary_failures++))
+            echo "  Found figure_format_missing_file for: $name (word boundary bug?)"
+        fi
+    done < "2026_submissions_individual.csv"
+
+    ((TESTS_RUN++))
+    if [[ $word_boundary_failures -eq 0 ]]; then
+        ((TESTS_PASSED++))
+        echo -e "${GREEN}PASS${NC}: No word boundary bug (configured not matching figure)"
+    else
+        ((TESTS_FAILED++))
+        echo -e "${RED}FAIL${NC}: Found $word_boundary_failures figure_format_missing_file - word boundary bug may have regressed"
+        return 1
+    fi
+}
+
+# ============================================================================
 # TESTS: Placeholder/Template Author Detection (Issue 3.4)
 # ============================================================================
 
@@ -2359,6 +2548,13 @@ run_all_tests() {
     run_test test_group_author_comma_is_separator
     run_test test_individual_no_singular_plural_penalty
     run_test test_real_wu_kunche_no_author_count_penalty
+
+    # Figure Format Regression Tests (figures required, word boundary bug fix)
+    run_test test_figure_format_configured_not_match
+    run_test test_figure_format_actual_figure_fails
+    run_test test_figure_format_no_figures_fails
+    run_test test_figure_format_notes_correct
+    run_test test_real_reports_configured_not_matching
 
     teardown
 

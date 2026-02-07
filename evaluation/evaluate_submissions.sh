@@ -41,6 +41,7 @@ VIDEO_CACHE_MAX_AGE_DAYS=30
 
 # Partial credit scoring globals
 CRITERION_SCORE_PCT=100
+CRITERION_NOTES=""
 AUTHOR_SCORE_PENALTIES=""
 SINGULAR_PLURAL_DETAIL=""
 
@@ -236,6 +237,1027 @@ show_logic() {
     fi
 }
 
+# Get detailed description of how a criterion is checked
+get_criterion_check_description() {
+    local criterion="$1"
+    local submission_type="$2"
+    local weight="${3:-10}"  # Default weight if not provided
+
+    case "$criterion" in
+        filename_format)
+            echo ""
+            echo "  START"
+            echo "    │"
+            if [[ "$submission_type" == "ssh-key" || "$submission_type" == "case-brief" || "$submission_type" == "report" ]]; then
+                echo "    ├─► Check filename: YYYY-FamilyName-GivenName.ext"
+                echo "    │   - Year prefix matches target year"
+                echo "    │   - FamilyName: uppercase start, ASCII only"
+                echo "    │   - GivenName: uppercase start, ASCII only (hyphens OK)"
+            else
+                echo "    ├─► Check filename: YYYY-Family1-Family2[-Family3].ext"
+                echo "    │   - Year prefix matches target year"
+                echo "    │   - 2-4 family names in alphabetical order"
+                echo "    │   - Each name: uppercase start, ASCII only"
+            fi
+            echo "    ▼"
+            echo "  [Format valid?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            if [[ "$submission_type" == "system-design" || "$submission_type" == "slides" ]]; then
+                echo "    └─► NO ──► [Is folder submission?]"
+                echo "                 │"
+                echo "                 ├─► YES ──► Score: $((weight/2)) pts (50%), append \"filename_format(50%)\""
+                echo "                 │"
+                echo "                 └─► NO ──► Score: 0 pts, append \"filename_format\""
+            else
+                echo "    └─► NO ──► Score: 0 pts, append \"filename_format\""
+            fi
+            echo ""
+            ;;
+        folder_format)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check folder name: YYYY-Family1-Family2[-Family3][-suffix]"
+            echo "    │   - Year prefix matches target year"
+            echo "    │   - 2-4 family names in alphabetical order"
+            echo "    ▼"
+            echo "  [Format valid?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"folder_format\""
+            echo ""
+            ;;
+        file_extension)
+            local expected_ext
+            case "$submission_type" in
+                ssh-key) expected_ext=".pub" ;;
+                case-brief|case-brief-group|report|tests|reflection) expected_ext=".md" ;;
+                system-design) expected_ext=".drawio" ;;
+                slides) expected_ext=".tex" ;;
+                video) expected_ext=".txt" ;;
+                *) expected_ext="(type-specific)" ;;
+            esac
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check file extension is $expected_ext"
+            echo "    ▼"
+            echo "  [Extension correct?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"file_extension\""
+            echo ""
+            ;;
+        is_public_key)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check file starts with 'ssh-ed25519 ' or 'ssh-rsa '"
+            echo "    ▼"
+            echo "  [Is public key format?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"is_public_key\""
+            echo ""
+            ;;
+        single_line)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Count newlines in key content"
+            echo "    ▼"
+            echo "  [Single line (no newlines)?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"single_line\""
+            echo ""
+            ;;
+        has_email_comment)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check key ends with email pattern (*@*.*)"
+            echo "    ▼"
+            echo "  [Has email comment?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_email_comment\""
+            echo ""
+            ;;
+        key_type_valid)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check key type: ssh-ed25519 or ssh-rsa"
+            echo "    │   (ed25519 preferred for security)"
+            echo "    ▼"
+            echo "  [Valid key type?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"key_type_valid\""
+            echo ""
+            ;;
+        has_license)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for license keywords:"
+            echo "    │   'license', 'License', 'LICENSE', 'CC-BY', 'Apache', 'SPDX'"
+            echo "    ▼"
+            echo "  [License info found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_license\""
+            echo ""
+            ;;
+        has_title)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for title:"
+            echo "    │   - Markdown header (line starting with '#')"
+            echo "    │   - Or 'title'/'Title' keyword"
+            echo "    ▼"
+            echo "  [Title found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_title\""
+            echo ""
+            ;;
+        has_author|has_authors)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for author declaration:"
+            echo "    │   'Author:', 'Authors:', '**Author:**'"
+            echo "    │   For LaTeX: \\author{...}"
+            echo "    ▼"
+            echo "  [Author line found?]"
+            echo "    │"
+            echo "    ├─► NO ──► Score: 0 pts, append \"has_author\""
+            echo "    │"
+            echo "    └─► YES ──► [Is placeholder? (YourName, TODO, etc.)]"
+            echo "                  │"
+            echo "                  ├─► YES ──► Score: 0 pts, append \"has_author\""
+            echo "                  │"
+            echo "                  └─► NO ──► [Name matches filename?]"
+            echo "                              │"
+            echo "                              ├─► YES ──► Score: $weight pts"
+            echo "                              │"
+            echo "                              └─► NO ──► [Partial match? (family name only)]"
+            echo "                                          │"
+            echo "                                          ├─► YES ──► Score: $((weight*3/4)) pts (75%)"
+            echo "                                          │           append \"has_author(25%)\""
+            echo "                                          │"
+            echo "                                          └─► NO ──► Score: $((weight/2)) pts (50%)"
+            echo "                                                      append \"has_author(50%)\""
+            echo ""
+            ;;
+        has_problem_statement)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Problem' as section heading (# or **)"
+            echo "    ▼"
+            echo "  [Problem section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_problem_statement\""
+            echo ""
+            ;;
+        has_context)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Context' or 'Background' as section heading"
+            echo "    ▼"
+            echo "  [Context section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_context\""
+            echo ""
+            ;;
+        has_analysis)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Analysis' or 'Approach Analysis' as heading"
+            echo "    ▼"
+            echo "  [Analysis section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_analysis\""
+            echo ""
+            ;;
+        has_proposed_approach)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Proposed', 'Approach', or 'Solution' as heading"
+            echo "    ▼"
+            echo "  [Proposed approach section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_proposed_approach\""
+            echo ""
+            ;;
+        has_expected_outcomes)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Expected', 'Outcome', or 'Goal' as heading"
+            echo "    ▼"
+            echo "  [Expected outcomes section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_expected_outcomes\""
+            echo ""
+            ;;
+        length_max_1250|length_max_750)
+            local max="${criterion##*_}"
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Count words in markdown content"
+            echo "    ▼"
+            echo "  [Word count <= $max?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"length_max_$max\""
+            echo ""
+            ;;
+        figure_format)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Count figure files in directory"
+            echo "    │   (YYYY-Name-FigureX.{pdf,png,jpg} or in -Figures/ folder)"
+            echo "    ▼"
+            echo "  [figure_count == 0?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: 0 pts, append \"figure_format_no_figures\""
+            echo "    │           STOP"
+            echo "    │"
+            echo "    └─► NO ──► Base Score: 5 pts"
+            echo "               │"
+            echo "               ▼"
+            echo "               Check each error condition:"
+            echo ""
+            echo "               [1] Filename format wrong?"
+            echo "                   YES: -1 pt, append \"figure_format_naming_error\""
+            echo ""
+            echo "               [2] < 3 figures AND using folder?"
+            echo "                   YES: -1 pt, append \"figure_format_unnecessary_folder\""
+            echo ""
+            echo "               [3] >= 3 figures AND no folder?"
+            echo "                   YES: -1 pt, append \"figure_format_missing_folder\""
+            echo ""
+            echo "               [4] Markdown image path invalid?"
+            echo "                   YES: -1 pt, append \"figure_format_wrong_path\""
+            echo ""
+            echo "               [5] Figure file not referenced?"
+            echo "                   YES: -1 pt, append \"figure_format_unreferenced_figure\""
+            echo ""
+            echo "               [6] Text mentions missing figure?"
+            echo "                   YES: -1 pt, append \"figure_format_missing_file\""
+            echo "               │"
+            echo "               ▼"
+            echo "               Final Score: max(0, 5 - error_count)"
+            echo ""
+            ;;
+        has_readme)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search folder for README.md file"
+            echo "    ▼"
+            echo "  [README.md exists?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_readme\""
+            echo ""
+            ;;
+        only_ascii_filenames)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check all filenames in folder"
+            echo "    │   (no Chinese, special characters, emojis)"
+            echo "    ▼"
+            echo "  [All filenames ASCII only?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"only_ascii_filenames\""
+            echo ""
+            ;;
+        readme_has_*)
+            local section="${criterion#readme_has_}"
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search README.md for '$section' section/keyword"
+            echo "    ▼"
+            echo "  [Section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"$criterion\""
+            echo ""
+            ;;
+        has_license_file)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for LICENSE, LICENSE.md, or LICENSE.txt"
+            echo "    ▼"
+            echo "  [LICENSE file exists?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_license_file\""
+            echo ""
+            ;;
+        has_requirements)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for requirements file:"
+            echo "    │   requirements.txt, pyproject.toml, package.json, etc."
+            echo "    ▼"
+            echo "  [Requirements file exists?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_requirements\""
+            echo ""
+            ;;
+        no_api_keys)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search code for hardcoded API keys"
+            echo "    │   (patterns like 'API_KEY = \"...\"')"
+            echo "    ▼"
+            echo "  [No API keys found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"no_api_keys\""
+            echo ""
+            ;;
+        has_pdf)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for PDF file in submission"
+            echo "    ▼"
+            echo "  [PDF file exists?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_pdf\""
+            echo ""
+            ;;
+        pdf_single_page)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Count PDF pages (pdfinfo/exiftool)"
+            echo "    ▼"
+            echo "  [Page count == 1?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"pdf_single_page\""
+            echo ""
+            ;;
+        has_group_members)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Members:', 'Group:', or 'Team:'"
+            echo "    ▼"
+            echo "  [Group members listed?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_group_members\""
+            echo ""
+            ;;
+        has_abstract)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Abstract' or 'Summary' as heading"
+            echo "    ▼"
+            echo "  [Abstract section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_abstract\""
+            echo ""
+            ;;
+        has_introduction)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Introduction' or 'Background' as heading"
+            echo "    ▼"
+            echo "  [Introduction section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_introduction\""
+            echo ""
+            ;;
+        has_system_architecture)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Architecture', 'System Design', 'Overview'"
+            echo "    ▼"
+            echo "  [System architecture section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_system_architecture\""
+            echo ""
+            ;;
+        has_implementation)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Implementation' as heading"
+            echo "    ▼"
+            echo "  [Implementation section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_implementation\""
+            echo ""
+            ;;
+        has_results)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Results' as heading"
+            echo "    ▼"
+            echo "  [Results section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_results\""
+            echo ""
+            ;;
+        has_discussion)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Discussion' as heading"
+            echo "    ▼"
+            echo "  [Discussion section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_discussion\""
+            echo ""
+            ;;
+        has_conclusion|has_conclusions)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Conclusion' as heading"
+            echo "    ▼"
+            echo "  [Conclusion section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_conclusion\""
+            echo ""
+            ;;
+        has_references)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'References' or 'Bibliography' as heading"
+            echo "    ▼"
+            echo "  [References section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_references\""
+            echo ""
+            ;;
+        contains_youtube_url)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for YouTube URL pattern:"
+            echo "    │   youtube.com/watch, youtu.be/"
+            echo "    ▼"
+            echo "  [YouTube URL found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"contains_youtube_url\""
+            echo ""
+            ;;
+        url_is_single_line)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check YouTube URL is on single line"
+            echo "    ▼"
+            echo "  [URL not split across lines?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"url_is_single_line\""
+            echo ""
+            ;;
+        url_format_valid)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Extract video ID from URL"
+            echo "    ▼"
+            echo "  [Valid video ID extracted?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"url_format_valid\""
+            echo ""
+            ;;
+        is_public)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Use yt-dlp to check video availability"
+            echo "    ▼"
+            echo "  [Video publicly accessible?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"is_public\""
+            echo ""
+            ;;
+        duration_max_12min)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Use yt-dlp to get video duration"
+            echo "    ▼"
+            echo "  [Duration <= 12 minutes (720s)?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"duration_max_12min\""
+            echo ""
+            ;;
+        resolution_min_1080p)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Use yt-dlp to get video height"
+            echo "    ▼"
+            echo "  [Height >= 1080 pixels?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"resolution_min_1080p\""
+            echo ""
+            ;;
+        has_subtitles)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Use yt-dlp to check for subtitles/captions"
+            echo "    │   (manual or auto-generated)"
+            echo "    ▼"
+            echo "  [Subtitles available?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_subtitles\""
+            echo ""
+            ;;
+        uses_uml)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search .drawio file for UML keywords"
+            echo "    ▼"
+            echo "  [UML notation used?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"uses_uml\""
+            echo ""
+            ;;
+        has_components)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check design for system components"
+            echo "    ▼"
+            echo "  [Components shown?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_components\""
+            echo ""
+            ;;
+        has_connections)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Check design for connections between components"
+            echo "    ▼"
+            echo "  [Connections shown?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_connections\""
+            echo ""
+            ;;
+        uses_beamer)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for \\documentclass{beamer}"
+            echo "    │   or \\documentclass[...]{beamer}"
+            echo "    ▼"
+            echo "  [Using Beamer class?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"uses_beamer\""
+            echo ""
+            ;;
+        uses_169_aspect)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for aspectratio=169 in documentclass"
+            echo "    ▼"
+            echo "  [16:9 aspect ratio?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"uses_169_aspect\""
+            echo ""
+            ;;
+        uses_nordlinglab_theme)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for \\usetheme{NordlingLab}"
+            echo "    │   or theme=NordlingLab"
+            echo "    ▼"
+            echo "  [NordlingLab theme used?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"uses_nordlinglab_theme\""
+            echo ""
+            ;;
+        no_template_files)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for template/example/sample files"
+            echo "    ▼"
+            echo "  [No template files found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"no_template_files\""
+            echo ""
+            ;;
+        has_title_slide)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for \\title{...} or \\maketitle"
+            echo "    ▼"
+            echo "  [Title slide present?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_title_slide\""
+            echo ""
+            ;;
+        has_problem)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Problem', 'Motivation', 'Challenge'"
+            echo "    ▼"
+            echo "  [Problem statement included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_problem\""
+            echo ""
+            ;;
+        has_challenges)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Challenge', 'Difficulty', 'Issue'"
+            echo "    ▼"
+            echo "  [Challenges discussed?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_challenges\""
+            echo ""
+            ;;
+        has_*_tests)
+            local test_type="${criterion#has_}"
+            test_type="${test_type%_tests}"
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for '$test_type' in test documentation"
+            echo "    ▼"
+            echo "  [$test_type tests described?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"$criterion\""
+            echo ""
+            ;;
+        has_test_*)
+            local field="${criterion#has_test_}"
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search test doc for '$field' field"
+            echo "    ▼"
+            echo "  [Field '$field' found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"$criterion\""
+            echo ""
+            ;;
+        has_overview)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Overview' section"
+            echo "    ▼"
+            echo "  [Overview section found?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_overview\""
+            echo ""
+            ;;
+        has_usage)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for usage/how-to-use section"
+            echo "    ▼"
+            echo "  [Usage described?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_usage\""
+            echo ""
+            ;;
+        has_known_issues)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for 'Known Issues' section"
+            echo "    ▼"
+            echo "  [Known issues documented?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_known_issues\""
+            echo ""
+            ;;
+        has_preconditions)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for preconditions in test doc"
+            echo "    ▼"
+            echo "  [Preconditions included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_preconditions\""
+            echo ""
+            ;;
+        has_input)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for input specification in test doc"
+            echo "    ▼"
+            echo "  [Input specified?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_input\""
+            echo ""
+            ;;
+        has_expected_output)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for expected output in test doc"
+            echo "    ▼"
+            echo "  [Expected output included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_expected_output\""
+            echo ""
+            ;;
+        has_actual_output)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for actual output in test doc"
+            echo "    ▼"
+            echo "  [Actual output included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_actual_output\""
+            echo ""
+            ;;
+        has_status)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for status (pass/fail) in test doc"
+            echo "    ▼"
+            echo "  [Status included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_status\""
+            echo ""
+            ;;
+        has_result_summary)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for result summary in test doc"
+            echo "    ▼"
+            echo "  [Result summary included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_result_summary\""
+            echo ""
+            ;;
+        has_failed_analysis)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for failed test analysis"
+            echo "    ▼"
+            echo "  [Failed tests analyzed?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_failed_analysis\""
+            echo ""
+            ;;
+        has_performance_metrics)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for performance metrics"
+            echo "    ▼"
+            echo "  [Performance metrics included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_performance_metrics\""
+            echo ""
+            ;;
+        has_tools)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for tool mentions:"
+            echo "    │   'Tool', 'Claude', 'Gemini', 'ChatGPT'"
+            echo "    ▼"
+            echo "  [Tools mentioned?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_tools\""
+            echo ""
+            ;;
+        has_task_description)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for task description in reflection"
+            echo "    ▼"
+            echo "  [Task described?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_task_description\""
+            echo ""
+            ;;
+        has_agent_approach)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for agent-based approach description"
+            echo "    ▼"
+            echo "  [Agent approach described?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_agent_approach\""
+            echo ""
+            ;;
+        has_chat_approach)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for chat-based approach description"
+            echo "    ▼"
+            echo "  [Chat approach described?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_chat_approach\""
+            echo ""
+            ;;
+        has_comparison)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for comparison of approaches"
+            echo "    ▼"
+            echo "  [Approaches compared?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_comparison\""
+            echo ""
+            ;;
+        has_lessons)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Search for lessons learned section"
+            echo "    ▼"
+            echo "  [Lessons included?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"has_lessons\""
+            echo ""
+            ;;
+        *)
+            echo ""
+            echo "  START"
+            echo "    │"
+            echo "    ├─► Custom check for '$criterion'"
+            echo "    ▼"
+            echo "  [Criterion met?]"
+            echo "    │"
+            echo "    ├─► YES ──► Score: $weight pts"
+            echo "    │"
+            echo "    └─► NO ──► Score: 0 pts, append \"$criterion\""
+            echo ""
+            ;;
+    esac
+}
+
 print_logic_for_submission() {
     local sub="$1"
     echo "----------------------------------------"
@@ -261,16 +1283,19 @@ print_logic_for_submission() {
         local name="${line%%:*}"
         local rest="${line#*:}"
         local weight="${rest%%:*}"
-        echo "  Check: $name"
-        echo "    |"
-        echo "    +-- PASS --> Add $weight to score"
-        echo "    +-- FAIL --> Add '$name' to notes"
+        local description="${rest#*:}"
+
+        echo "  [$name] (weight: $weight pts) - $description"
+        echo "  ┌─────────────────────────────────────────────────────────────"
+        get_criterion_check_description "$name" "$sub" "$weight" | sed 's/^/  │ /'
+        echo "  └─────────────────────────────────────────────────────────────"
         echo ""
     done
 
     echo "Calculate final score:"
-    echo "  - If score == 0 but file exists: score = 1"
-    echo "  - Otherwise: score = sum of passed criteria weights"
+    echo "  - If score == 0 but file exists: score = 1 (minimum for submission)"
+    echo "  - Otherwise: score = sum of points from passed criteria"
+    echo "  - Maximum possible: 100 points (all weights sum to ~100)"
     echo ""
 }
 
@@ -1942,12 +2967,24 @@ check_criterion() {
             return 1
             ;;
         figure_format)
-            # Check if figures exist and are named correctly
-            # Expected: YYYY-FamilyName-FirstName-FigureX.{pdf,png,jpg} or folder YYYY-FamilyName-FirstName-Figures/
+            # Check if figures exist, are named correctly, and are referenced
+            #
+            # REQUIREMENT: At least one figure file must be present
+            #
+            # Scoring: 0 pts if no figures, else 5 pts minus errors (minimum 0)
+            # Each error: -1 point
+            #   -1p: figure_format_naming_error      - Filename not YYYY-Name-FigureX.{pdf,png,jpg}
+            #   -1p: figure_format_unnecessary_folder - < 3 figures but using -Figures/ folder
+            #   -1p: figure_format_missing_folder    - >= 3 figures but no -Figures/ folder
+            #   -1p: figure_format_wrong_path        - Markdown image path doesn't exist
+            #   -1p: figure_format_unreferenced_figure - Figure file not referenced in text
+            #   -1p: figure_format_missing_file      - Figure mentioned but file missing
+
             local check_path="$filepath"
             local dir_name
             local base_name
             local base_only
+            local error_notes=""
 
             # For folder submissions, check inside the folder
             if [[ -d "$filepath" ]]; then
@@ -1960,41 +2997,160 @@ check_criterion() {
                 base_only=$(basename "$base_name")
             fi
             [[ -z "$check_path" ]] && return 1
+
             local figures_folder="${base_only}-Figures"
+            local has_figures_folder=false
+            local has_individual_figures=false
+            local figure_count=0
+            local figure_files=()
+            local improperly_named_figures=()
+            local errors=0
 
-            # Check for figures folder
+            # Check for properly named figures folder
             if [[ -d "$dir_name/$figures_folder" ]]; then
-                return 0
-            fi
-            # Also check for Figures subfolder inside submission folder
-            if [[ -d "$dir_name" ]] && [[ -d "$dir_name/Figures" ]]; then
-                return 0
-            fi
-
-            # Check for individual figure files (YYYY-Name-Name-Figure1.pdf, etc.)
-            # Use find instead of ls to avoid glob expansion errors
-            if find "$dir_name" -maxdepth 1 -name "${base_only}-Figure*" \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) 2>/dev/null | grep -q .; then
-                return 0
-            fi
-            # For folder submissions, also check for any figure files inside
-            if [[ -d "$filepath" ]]; then
-                if find "$filepath" -maxdepth 1 -name "*.pdf" -o -name "*.png" -o -name "*.jpg" 2>/dev/null | grep -q .; then
-                    return 0
-                fi
+                has_figures_folder=true
+                local folder_figures
+                folder_figures=$(find "$dir_name/$figures_folder" -maxdepth 1 \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) 2>/dev/null)
+                figure_count=$(echo "$folder_figures" | grep -c . || echo 0)
+                while IFS= read -r f; do
+                    [[ -n "$f" ]] && figure_files+=("$(basename "$f")")
+                done <<< "$folder_figures"
             fi
 
-            # No figures found - check if the report mentions figures
-            # If they mention figures but don't have properly named files, fail
-            if content_contains "$check_path" "Figure\|figure\|Fig\\."; then
-                # Report mentions figures - check if any image files exist in the directory
-                if find "$dir_name" -maxdepth 1 \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) ! -name "*.md" 2>/dev/null | grep -q .; then
-                    # Has some image files - could be figures (pass with benefit of doubt)
-                    return 0
-                fi
+            # Check for properly named individual figure files (YYYY-Name-FigureX.ext)
+            local proper_figures
+            proper_figures=$(find "$dir_name" -maxdepth 1 -name "${base_only}-Figure*" \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) 2>/dev/null)
+            if [[ -n "$proper_figures" ]]; then
+                has_individual_figures=true
+                local individual_count
+                individual_count=$(echo "$proper_figures" | grep -c . || echo 0)
+                figure_count=$((figure_count + individual_count))
+                while IFS= read -r f; do
+                    [[ -n "$f" ]] && figure_files+=("$(basename "$f")")
+                done <<< "$proper_figures"
+            fi
+
+            # Check for improperly named image files (images that don't follow naming convention)
+            local all_images
+            all_images=$(find "$dir_name" -maxdepth 1 \( -name "*.pdf" -o -name "*.png" -o -name "*.jpg" \) ! -name "${base_only}-*" 2>/dev/null | grep -v "\.md$" || true)
+            if [[ -n "$all_images" ]]; then
+                while IFS= read -r f; do
+                    [[ -n "$f" ]] && improperly_named_figures+=("$(basename "$f")")
+                done <<< "$all_images"
+            fi
+
+            # Check if report mentions figures (word boundary to exclude 'configured')
+            local mentions_figures=false
+            if content_contains "$check_path" '\<Figure\>\|\<figure\>\|\<Fig\.'; then
+                mentions_figures=true
+            fi
+
+            # Extract figure numbers mentioned in report (e.g., "Figure 1", "Fig. 2")
+            local mentioned_figure_nums=()
+            if [[ "$mentions_figures" == "true" ]]; then
+                local nums
+                nums=$(grep -oE '\<(Figure|figure|Fig\.?)[[:space:]]*[0-9]+' "$check_path" 2>/dev/null | grep -oE '[0-9]+' | sort -u || true)
+                while IFS= read -r n; do
+                    [[ -n "$n" ]] && mentioned_figure_nums+=("$n")
+                done <<< "$nums"
+            fi
+
+            # Extract figure paths referenced in report (markdown image syntax)
+            local referenced_paths=()
+            local path_refs
+            path_refs=$(grep -oE '!\[[^]]*\]\([^)]+\)' "$check_path" 2>/dev/null | grep -oE '\([^)]+\)' | tr -d '()' || true)
+            while IFS= read -r p; do
+                [[ -n "$p" ]] && referenced_paths+=("$p")
+            done <<< "$path_refs"
+
+            # Count total figures (properly + improperly named)
+            local total_figures=$((figure_count + ${#improperly_named_figures[@]}))
+
+            # Case 1: No figures at all - 0 points (figures are required)
+            if [[ $total_figures -eq 0 ]]; then
+                CRITERION_SCORE_PCT=0
+                CRITERION_NOTES="figure_format_no_figures"
+                [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(no figures) ${NC}" >&2
                 return 1
             fi
 
-            # No figures mentioned and none found - acceptable
+            # Case 2: Has at least one figure file - start with 5 points, deduct for errors
+
+            # Error 1: Improperly named figures (-1p)
+            if [[ ${#improperly_named_figures[@]} -gt 0 ]]; then
+                ((errors++))
+                error_notes="${error_notes}figure_format_naming_error; "
+                [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(naming error: ${improperly_named_figures[*]}) ${NC}" >&2
+            fi
+
+            # Error 2: < 3 figures but using folder (-1p)
+            if [[ "$has_figures_folder" == "true" && $figure_count -lt 3 ]]; then
+                ((errors++))
+                error_notes="${error_notes}figure_format_unnecessary_folder; "
+                [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(<3 figures but using folder) ${NC}" >&2
+            fi
+
+            # Error 3: >= 3 figures but no folder (-1p)
+            if [[ $figure_count -ge 3 && "$has_figures_folder" == "false" ]]; then
+                ((errors++))
+                error_notes="${error_notes}figure_format_missing_folder; "
+                [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(>=3 figures should use folder) ${NC}" >&2
+            fi
+
+            # Error 4: Wrong relative path in text (-1p)
+            for ref_path in "${referenced_paths[@]}"; do
+                if [[ -n "$ref_path" && ! -f "$dir_name/$ref_path" ]]; then
+                    ((errors++))
+                    error_notes="${error_notes}figure_format_wrong_path; "
+                    [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(wrong path: $ref_path) ${NC}" >&2
+                    break  # Only count once
+                fi
+            done
+
+            # Error 5: Figure exists but not referenced in report (-1p)
+            if [[ "$mentions_figures" == "false" && $total_figures -gt 0 ]]; then
+                ((errors++))
+                error_notes="${error_notes}figure_format_unreferenced_figure; "
+                [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(figures not referenced) ${NC}" >&2
+            fi
+
+            # Error 6: Figure mentioned but file missing (-1p)
+            if [[ ${#mentioned_figure_nums[@]} -gt 0 ]]; then
+                local missing_found=false
+                for num in "${mentioned_figure_nums[@]}"; do
+                    local found=false
+                    for fig_file in "${figure_files[@]}"; do
+                        if [[ "$fig_file" == *"Figure$num"* || "$fig_file" == *"Figure-$num"* || "$fig_file" == *"figure$num"* ]]; then
+                            found=true
+                            break
+                        fi
+                    done
+                    # Also check in folder
+                    if [[ "$found" == "false" && "$has_figures_folder" == "true" ]]; then
+                        # In folder mode, we're less strict about numbering
+                        found=true
+                    fi
+                    if [[ "$found" == "false" ]]; then
+                        missing_found=true
+                        [[ "$VERBOSE" == "true" ]] && echo -n -e "${YELLOW}(Figure $num missing) ${NC}" >&2
+                    fi
+                done
+                if [[ "$missing_found" == "true" ]]; then
+                    ((errors++))
+                    error_notes="${error_notes}figure_format_missing_file; "
+                fi
+            fi
+
+            # Calculate score: 5 points - errors, minimum 0
+            # Each error = 20% (1 out of 5 points)
+            local score_pct=$((100 - errors * 20))
+            CRITERION_SCORE_PCT=$((score_pct < 0 ? 0 : score_pct))
+
+            # Set notes if there were errors
+            if [[ -n "$error_notes" ]]; then
+                CRITERION_NOTES="${error_notes%; }"
+            fi
+
             return 0
             ;;
         has_readme)
@@ -2752,8 +3908,9 @@ evaluate_submission() {
             echo -n "        $criterion (weight: $weight)... " >&2
         fi
 
-        # Reset partial credit percentage (some criteria set this for partial scoring)
+        # Reset partial credit percentage and notes (some criteria set these for partial scoring)
         CRITERION_SCORE_PCT=100
+        CRITERION_NOTES=""
         AUTHOR_SCORE_PENALTIES=""
 
         if check_criterion "$criterion" "$submission_type" "$filepath" "$year"; then
@@ -2769,13 +3926,22 @@ evaluate_submission() {
                 if [[ "$VERBOSE" == "true" && -n "$AUTHOR_SCORE_PENALTIES" ]]; then
                     echo -e "          \033[0;33m↳ ${AUTHOR_SCORE_PENALTIES}\033[0m" >&2
                 fi
-                # Add to notes with partial indicator
+                # Add to notes with partial indicator - use CRITERION_NOTES if set, else criterion name
                 [[ -n "$notes" ]] && notes="$notes; "
-                notes="${notes}${criterion}(${CRITERION_SCORE_PCT}%)"
+                if [[ -n "$CRITERION_NOTES" ]]; then
+                    notes="${notes}${CRITERION_NOTES}"
+                else
+                    notes="${notes}${criterion}(${CRITERION_SCORE_PCT}%)"
+                fi
             fi
         else
             [[ -n "$notes" ]] && notes="$notes; "
-            notes="${notes}${criterion}"
+            # Use CRITERION_NOTES if set, else criterion name
+            if [[ -n "$CRITERION_NOTES" ]]; then
+                notes="${notes}${CRITERION_NOTES}"
+            else
+                notes="${notes}${criterion}"
+            fi
             [[ "$VERBOSE" == "true" ]] && echo -e "\033[0;31mFAIL\033[0m" >&2
         fi
     done
