@@ -398,29 +398,48 @@ get_criterion_check_description() {
             echo ""
             echo "  START"
             echo "    │"
-            echo "    ├─► Search for author declaration:"
-            echo "    │   'Author:', 'Authors:', '**Author:**'"
-            echo "    │   For LaTeX: \\author{...}"
+            echo "    ├─► Search for author declaration (case-insensitive):"
+            echo "    │"
+            echo "    │   Markdown patterns (first 15 lines):"
+            echo "    │     • 'Author:' or 'Authors:' (optional ** or # prefix)"
+            echo "    │     • 'Author <Name>' (no colon, followed by uppercase)"
+            echo "    │     • 'Student:' or 'Student <Name>'"
+            echo "    │     • 'Group:' or 'Group members:'"
+            echo "    │     • 'Team:' or 'Team members:'"
+            echo "    │"
+            echo "    │   LaTeX patterns (first 100 lines of .tex):"
+            print -r -- "    │     • \\author{...}"
+            print -r -- "    │     • \\author[optional]{...}"
             echo "    ▼"
             echo "  [Author line found?]"
             echo "    │"
             echo "    ├─► NO ──► Score: 0 pts, append \"has_author\""
             echo "    │"
-            echo "    └─► YES ──► [Is placeholder? (YourName, TODO, etc.)]"
+            echo "    └─► YES ──► [Is placeholder? (YourName, TODO, [Insert], etc.)]"
             echo "                  │"
             echo "                  ├─► YES ──► Score: 0 pts, append \"has_author\""
             echo "                  │"
-            echo "                  └─► NO ──► [Name matches filename?]"
-            echo "                              │"
-            echo "                              ├─► YES ──► Score: $weight pts"
-            echo "                              │"
-            echo "                              └─► NO ──► [Partial match? (family name only)]"
-            echo "                                          │"
-            echo "                                          ├─► YES ──► Score: $((weight*3/4)) pts (75%)"
-            echo "                                          │           append \"has_author(25%)\""
-            echo "                                          │"
-            echo "                                          └─► NO ──► Score: $((weight/2)) pts (50%)"
-            echo "                                                      append \"has_author(50%)\""
+            echo "                  └─► NO ──► Base score: $weight pts"
+            echo "                              Apply penalty checks (each halves score):"
+            echo ""
+            echo "                              [1] Singular/plural mismatch?"
+            echo "                                  (e.g., 'Author:' with multiple names)"
+            echo "                                  YES: score = score / 2"
+            echo ""
+            echo "                              [2] Year-prefix format in author line?"
+            echo "                                  (e.g., '2026-Chen-KunYu' instead of 'Chen KunYu')"
+            echo "                                  YES: score = score / 2"
+            echo ""
+            echo "                              [3] Family name mismatch? (individual only)"
+            echo "                                  Compare first word of author line to filename"
+            echo "                                  e.g., file '2026-Chen-GuoZhu.md', author 'Chen KunYu'"
+            echo "                                  Match uses fuzzy comparison (1 char tolerance)"
+            echo "                                  YES: score = score / 2"
+            echo ""
+            echo "                              Final score examples:"
+            echo "                                0 penalties: $weight pts (100%)"
+            echo "                                1 penalty:   $((weight/2)) pts (50%), append \"has_author(50%)\""
+            echo "                                2 penalties: $((weight/4)) pts (25%), append \"has_author(75%)\""
             echo ""
             ;;
         has_problem_statement)
@@ -653,9 +672,12 @@ get_criterion_check_description() {
             echo ""
             echo "  START"
             echo "    │"
-            echo "    ├─► Search for 'Members:', 'Group:', or 'Team:'"
+            echo "    ├─► Search content for keywords (case-insensitive):"
+            echo "    │     • 'group' (matches Group, group, Group:, etc.)"
+            echo "    │     • 'members' (matches Members, members, etc.)"
+            echo "    │     • 'team' (matches Team, team, Team:, etc.)"
             echo "    ▼"
-            echo "  [Group members listed?]"
+            echo "  [Any keyword found?]"
             echo "    │"
             echo "    ├─► YES ──► Score: $weight pts"
             echo "    │"
@@ -1594,6 +1616,16 @@ extract_authors_from_content() {
     # Only match if followed by what looks like a name (uppercase letter)
     if [[ -z "$author_line" ]]; then
         author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*authors?[*]*[[:space:]]+[A-Z]" | head -1 | sed -E 's/^[*#[:space:]]*(authors?)[*]*[[:space:]]+//' || true)
+    fi
+
+    # Pattern 1c: "Student:" (with colon)
+    if [[ -z "$author_line" ]]; then
+        author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*student[*]*[[:space:]]*:" | head -1 | sed 's/^[^:]*://' || true)
+    fi
+
+    # Pattern 1d: "Student <Name>" (without colon, followed by uppercase)
+    if [[ -z "$author_line" ]]; then
+        author_line=$(printf '%s\n' "$first_lines" | grep -iE "^[*#[:space:]]*student[*]*[[:space:]]+[A-Z]" | head -1 | sed -E 's/^[*#[:space:]]*(student)[*]*[[:space:]]+//' || true)
     fi
 
     # Pattern 2: "Group:" or "Group members:" (must have colon)
@@ -3635,7 +3667,7 @@ check_criterion() {
             ;;
         has_author)
             # For individual submissions - singular author (with partial credit)
-            if ! content_contains "$filepath" "[Aa]uthor"; then
+            if ! content_contains "$filepath" "[Aa]uthor\|[Ss]tudent"; then
                 CRITERION_SCORE_PCT=0
                 AUTHOR_SCORE_PENALTIES="no author info found"
                 return 1
@@ -3659,7 +3691,7 @@ check_criterion() {
                     return 1
                 }
             fi
-            if ! content_contains "$check_path" "[Aa]uthors\|[Aa]uthor\|[Gg]roup\|[Mm]embers\|[Tt]eam"; then
+            if ! content_contains "$check_path" "[Aa]uthors\|[Aa]uthor\|[Ss]tudent\|[Gg]roup\|[Mm]embers\|[Tt]eam"; then
                 CRITERION_SCORE_PCT=0
                 AUTHOR_SCORE_PENALTIES="no author info found"
                 return 1

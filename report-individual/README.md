@@ -29,6 +29,8 @@ Your report must include:
 | **Conclusion** | Summary and potential future work |
 | **References** | Sources cited |
 
+The report must also include at least one figure.
+
 ---
 
 ## Grading Criteria
